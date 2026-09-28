@@ -247,15 +247,16 @@ type Tree struct {
 }
 
 // Tree returns the subscription tree as the last sync left it, labels and
-// feeds sorted by name.
+// feeds sorted by name. A label holding no feed is left out: FreshRSS keeps
+// its default category even when it is empty.
 func (l *Library) Tree(ctx context.Context) (Tree, error) {
 	tree := Tree{Categories: []Category{}, Feeds: []Feed{}}
 	rows, err := l.db.QueryContext(ctx,
 		`WITH tree (tag_id, label, stream_id, title, url, site_url, icon_url) AS (
 		   SELECT t.tag_id, t.label, f.stream_id, f.title, f.url, f.site_url, f.icon_url
 		   FROM tags t
-		   LEFT JOIN feed_tags ft ON ft.tag_id = t.tag_id
-		   LEFT JOIN feeds f ON f.stream_id = ft.stream_id
+		   JOIN feed_tags ft ON ft.tag_id = t.tag_id
+		   JOIN feeds f ON f.stream_id = ft.stream_id
 		   UNION ALL
 		   SELECT NULL, NULL, f.stream_id, f.title, f.url, f.site_url, f.icon_url FROM feeds f
 		   WHERE NOT EXISTS (SELECT 1 FROM feed_tags ft WHERE ft.stream_id = f.stream_id)

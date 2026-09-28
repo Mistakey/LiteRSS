@@ -284,13 +284,10 @@ func TestTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Categories) != 2 {
-		t.Fatalf("categories = %+v", got.Categories)
+	if len(got.Categories) != 1 {
+		t.Fatalf("categories = %+v, want the empty label left out", got.Categories)
 	}
-	empty, tech := got.Categories[0], got.Categories[1]
-	if empty.Label != "Empty" || len(empty.Feeds) != 0 || empty.Feeds == nil {
-		t.Fatalf("empty label = %+v, want an empty non-nil list", empty)
-	}
+	tech := got.Categories[0]
 	if tech.ID != labelTech || tech.Label != "Tech" || len(tech.Feeds) != 2 ||
 		tech.Feeds[0].ID != "feed/2" || tech.Feeds[1].ID != "feed/1" || tech.Feeds[1].URL != "https://b.example/rss" {
 		t.Fatalf("tech = %+v, want alpha then Beta", tech)
