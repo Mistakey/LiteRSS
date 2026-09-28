@@ -1,0 +1,58 @@
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>CFBundlePackageType</key>
+            <string>APPL</string>
+        <key>CFBundleName</key>
+            <string>LiteRSS</string>
+        <key>CFBundleExecutable</key>
+            <string>LiteRSS</string>
+        <key>CFBundleIdentifier</key>
+            <string>io.github.mistakey.literss</string>
+        <key>CFBundleVersion</key>
+            <string>0.1.0</string>
+        <key>CFBundleGetInfoString</key>
+            <string>Built with Wails</string>
+        <key>CFBundleShortVersionString</key>
+            <string>0.1.0</string>
+        <key>CFBundleIconFile</key>
+            <string>icons</string>
+        <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+        <key>NSHighResolutionCapable</key>
+            <string>true</string>
+        <key>NSSupportsAutomaticGraphicsSwitching</key>
+            <string>true</string>
+        <key>NSHumanReadableCopyright</key>
+            <string>Copyright © 2026</string>
+
+        <!-- ============================================================ -->
+        <!-- Privacy and Permission Descriptions                         -->
+        <!-- ============================================================ -->
+
+        <!-- Apple Events Usage - Required for opening browser -->
+        <key>NSAppleEventsUsageDescription</key>
+        <string>LiteRSS needs permission to open articles in your default web browser.</string>
+
+        <!-- Network Access - Required for fetching RSS feeds -->
+        <key>NSNetworkUsageDescription</key>
+        <string>LiteRSS requires network access to sync with FreshRSS and fetch article content.</string>
+
+        <!-- ============================================================ -->
+        <!-- App Sandbox Configuration                                     -->
+        <!-- ============================================================ -->
+        <!-- Note: Actual sandbox entitlements are configured in          -->
+        <!-- build/darwin/entitlements.plist                              -->
+        <!-- ============================================================ -->
+
+        <!-- Disable App Sandbox for non-App Store distribution -->
+        <!-- Remove this key if publishing to Mac App Store -->
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSAllowsArbitraryLoads</key>
+            <false/>
+            <key>NSExceptionDomains</key>
+            <dict/>
+        </dict>
+    </dict>
+</plist>

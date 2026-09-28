@@ -1,0 +1,178 @@
+name: Pre-release Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-check:
+    name: Build Check ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows AMD64 build
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+            ext: '.exe'
+          # Windows ARM64 build - using native ARM64 runner
+          - os: windows-11-arm
+            platform: windows
+            arch: arm64
+            ext: '.exe'
+          # macOS Universal build (includes both Intel and Apple Silicon)
+          - os: macos-latest
+            platform: darwin
+            arch: universal
+            ext: '.app'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install Task (task runner)
+        uses: arduino/setup-task@v3
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows'
+        run: |
+          choco install nsis -y
+        shell: pwsh
+
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          echo "Installing Wails CLI ${WAILS_VERSION}"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build application (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # wails3 build automatically handles frontend build via Taskfile
+          wails3 build
+
+          # Verify the build
+          if (-not (Test-Path "build/bin/LiteRSS.exe")) {
+            Write-Error "Binary not created"
+            exit 1
+          }
+
+          Write-Host "Binary built successfully for ${{ matrix.arch }}"
+
+      - name: Build application (macOS)
+        if: matrix.platform == 'darwin'
+        run: |
+          # macOS runners can build universal binaries natively
+          # wails3 build automatically handles frontend build via Taskfile
+          wails3 build
+
+      - name: Create installer (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          # Find NSIS installation
+          $nsisPath = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $nsisPath) {
+            # Try common installation paths
+            $possiblePaths = @(
+              "C:\Program Files (x86)\NSIS\makensis.exe",
+              "C:\Program Files\NSIS\makensis.exe"
+            )
+            foreach ($path in $possiblePaths) {
+              if (Test-Path $path) {
+                $nsisPath = $path
+                break
+              }
+            }
+          } else {
+            $nsisPath = $nsisPath.Source
+          }
+
+          if (-not $nsisPath) {
+            Write-Error "NSIS not found"
+            exit 1
+          }
+
+          Write-Host "Using NSIS at: $nsisPath"
+
+          # Get version from package.json
+          $packageJson = Get-Content "frontend/package.json" -Raw | ConvertFrom-Json
+          $version = $packageJson.version
+          $arch = "${{ matrix.arch }}"
+          $installerPath = "build/windows/installer.nsi"
+
+          if (Test-Path $installerPath) {
+            $content = Get-Content $installerPath -Raw
+            $content = $content -replace '!define APP_VERSION ".*"', "!define APP_VERSION `"$version`""
+            $content = $content -replace 'OutFile ".*"', "OutFile `"..\bin\LiteRSS-$version-windows-$arch-installer.exe`""
+            Set-Content $installerPath $content
+
+            # Build NSIS installer
+            & $nsisPath $installerPath
+
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "NSIS build failed with exit code $LASTEXITCODE"
+              exit 1
+            }
+          } else {
+            Write-Warning "Installer script not found at $installerPath"
+            exit 1
+          }
+        shell: pwsh
+        continue-on-error: true
+
+      - name: Create installer (macOS)
+        if: matrix.platform == 'darwin'
+        run: |
+          codesign --deep --force --verify --verbose \
+            --sign - \
+            --entitlements build/darwin/entitlements.plist \
+            build/bin/LiteRSS.app
+          codesign --verify --deep --strict --verbose=2 build/bin/LiteRSS.app
+          chmod +x build/darwin/create-dmg.sh
+          ./build/darwin/create-dmg.sh
+
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          echo "Build verification for ${{ matrix.platform }}-${{ matrix.arch }}"
+          echo "Checking build/bin directory..."
+          ls -lh build/bin/ || echo "No artifacts found"
+          echo "Build check completed successfully"
+
+      # release.yml lists every asset in SHA256SUMS the same way.
+      - name: Checksum release artifacts
+        shell: bash
+        working-directory: build/bin
+        run: |
+          shopt -s nullglob
+          files=(LiteRSS-*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release artifacts to checksum"
+            exit 1
+          fi
+          if command -v sha256sum >/dev/null; then
+            sha256sum "${files[@]}" | tee SHA256SUMS
+          else
+            shasum -a 256 "${files[@]}" | tee SHA256SUMS
+          fi

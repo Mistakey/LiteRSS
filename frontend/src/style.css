@@ -1,0 +1,124 @@
+/*
+ * 全局变量与基础样式，取自布局原型变体 B（docs/specs/literss-rb0/layout-prototype/style.css）。
+ * 主题只跟随系统；组件样式写在各自的 scoped CSS 里。
+ */
+:root {
+  --bg: #ffffff;
+  --bg-2: #f6f7f9;
+  --bg-3: #eceef2;
+  --bg-hover: #eef1f6;
+  --bg-sel: #e3ebfb;
+  --border: #e1e4ea;
+  --text: #1d2129;
+  --text-2: #5c6370;
+  --text-3: #8a919e;
+  --read-text: #2a2e36;
+  --accent: #2f6fed;
+  --accent-soft: #e6eefd;
+  --warn-bg: #fff6e5;
+  --warn-border: #f0c36d;
+  --warn-text: #7a4d00;
+  --danger: #c0392b;
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-number: #b76b01;
+  --code-title: #4078f2;
+  --radius: 8px;
+
+  /* 正文排版写死（spec D15），没有设置项 */
+  --read-font:
+    -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
+    'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --read-size: 17px;
+  --read-lh: 1.8;
+  --read-width: 700px;
+  --read-title-size: 26px;
+  --ui-font:
+    -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'Noto Sans CJK SC', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1d22;
+    --bg-2: #22252b;
+    --bg-3: #2a2e35;
+    --bg-hover: #2c3038;
+    --bg-sel: #26344f;
+    --border: #353a43;
+    --text: #e6e8ec;
+    --text-2: #a9b0bc;
+    --text-3: #7c8491;
+    --read-text: #d9dce2;
+    --accent: #6b9bff;
+    --accent-soft: #24324d;
+    --warn-bg: #3a2f17;
+    --warn-border: #7a5c1f;
+    --warn-text: #f3d18a;
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --code-keyword: #c678dd;
+    --code-string: #98c379;
+    --code-number: #d19a66;
+    --code-title: #61afef;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--ui-font);
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* 三栏共用的布局件 */
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.scroll {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.grow {
+  flex: 1;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}

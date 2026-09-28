@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "kelch",
+			"FileDescription": "LiteRSS",
+			"LegalCopyright": "Copyright © 2026",
+			"ProductName": "LiteRSS",
+			"Comments": "Built with Wails"
+		}
+	}
+}

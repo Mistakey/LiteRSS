@@ -1,0 +1,146 @@
+{
+  "_meta": {
+    "version": "2.0.0",
+    "description": "The only list of settings (spec D10). Grouped in settings-panel order; generated files are sorted by key."
+  },
+  "settings": {
+    "freshrss_server_url": {
+      "type": "string",
+      "default": "",
+      "category": "freshrss",
+      "encrypted": false
+    },
+    "freshrss_username": {
+      "type": "string",
+      "default": "",
+      "category": "freshrss",
+      "encrypted": false
+    },
+    "freshrss_api_password": {
+      "type": "string",
+      "default": "",
+      "category": "freshrss",
+      "encrypted": true
+    },
+    "freshrss_auto_sync_interval": {
+      "type": "int",
+      "default": 30,
+      "category": "freshrss",
+      "encrypted": false
+    },
+    "llm_endpoint": {
+      "type": "string",
+      "default": "",
+      "category": "llm",
+      "encrypted": false
+    },
+    "llm_model": {
+      "type": "string",
+      "default": "",
+      "category": "llm",
+      "encrypted": false
+    },
+    "llm_api_key": {
+      "type": "string",
+      "default": "",
+      "category": "llm",
+      "encrypted": true
+    },
+    "baidu_app_id": {
+      "type": "string",
+      "default": "",
+      "category": "translation",
+      "encrypted": false
+    },
+    "baidu_secret_key": {
+      "type": "string",
+      "default": "",
+      "category": "translation",
+      "encrypted": true
+    },
+    "proxy_mode": {
+      "type": "string",
+      "default": "system",
+      "category": "network",
+      "encrypted": false
+    },
+    "proxy_type": {
+      "type": "string",
+      "default": "http",
+      "category": "network",
+      "encrypted": false
+    },
+    "proxy_host": {
+      "type": "string",
+      "default": "127.0.0.1",
+      "category": "network",
+      "encrypted": false
+    },
+    "proxy_port": {
+      "type": "string",
+      "default": "7890",
+      "category": "network",
+      "encrypted": false
+    },
+    "proxy_username": {
+      "type": "string",
+      "default": "",
+      "category": "network",
+      "encrypted": true
+    },
+    "proxy_password": {
+      "type": "string",
+      "default": "",
+      "category": "network",
+      "encrypted": true
+    },
+    "update_check_enabled": {
+      "type": "bool",
+      "default": true,
+      "category": "app",
+      "encrypted": false
+    },
+    "close_to_tray": {
+      "type": "bool",
+      "default": true,
+      "category": "app",
+      "encrypted": false
+    },
+    "startup_on_boot": {
+      "type": "bool",
+      "default": false,
+      "category": "app",
+      "encrypted": false
+    },
+    "window_x": {
+      "type": "int",
+      "default": 0,
+      "category": "internal",
+      "encrypted": false
+    },
+    "window_y": {
+      "type": "int",
+      "default": 0,
+      "category": "internal",
+      "encrypted": false
+    },
+    "window_width": {
+      "type": "int",
+      "default": 1024,
+      "category": "internal",
+      "encrypted": false
+    },
+    "window_height": {
+      "type": "int",
+      "default": 768,
+      "category": "internal",
+      "encrypted": false
+    },
+    "window_maximized": {
+      "type": "bool",
+      "default": false,
+      "category": "internal",
+      "encrypted": false
+    }
+  }
+}

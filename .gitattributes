@@ -1,0 +1,3 @@
+# Keep executable verification wrappers usable after a Windows checkout.
+scripts/check.sh text eol=lf
+scripts/pre-release.sh text eol=lf
