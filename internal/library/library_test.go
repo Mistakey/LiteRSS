@@ -223,13 +223,16 @@ func TestContent(t *testing.T) {
 		article{ID: 100, Stream: "feed/1", Published: 1, Content: "<p>body</p>"},
 		article{ID: 200, Stream: "feed/1", Published: 1},
 	)
+	if _, err := db.Exec(`INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (100, '<p>full</p>', 1)`); err != nil {
+		t.Fatal(err)
+	}
 	lib := New(db.DB)
 	ctx := context.Background()
-	if got, err := lib.Content(ctx, 100); err != nil || got != "<p>body</p>" {
-		t.Fatalf("content = %q, %v", got, err)
+	if got, err := lib.Content(ctx, 100); err != nil || got != (Body{Content: "<p>body</p>", FullText: "<p>full</p>"}) {
+		t.Fatalf("content = %+v, %v", got, err)
 	}
-	if got, err := lib.Content(ctx, 200); err != nil || got != "" {
-		t.Fatalf("no body = %q, %v", got, err)
+	if got, err := lib.Content(ctx, 200); err != nil || got != (Body{}) {
+		t.Fatalf("no body = %+v, %v", got, err)
 	}
 	if _, err := lib.Content(ctx, 300); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing article: %v", err)

@@ -80,6 +80,12 @@ export interface TitleTranslations {
   message: string;
 }
 
+/** 文章的正文：RSS 正文与已缓存的全文，都是不可信 HTML，缺的为空串。 */
+export interface Body {
+  content: string;
+  fulltext: string;
+}
+
 export interface FullText {
   /** success 或失败种类（blocked、no_content、no_link 等）。 */
   outcome: string;
@@ -196,8 +202,7 @@ export const api = {
   },
 
   /** RSS 正文原样，不可信 HTML；没有正文为空串。 */
-  content: async (id: number) =>
-    (await getJSON<{ content: string }>(`/api/articles/${id}/content`)).content,
+  content: (id: number) => getJSON<Body>(`/api/articles/${id}/content`),
   fullText: (id: number) => postJSON<FullText>(`/api/articles/${id}/fulltext`),
   summary: (id: number) => postJSON<Summary>(`/api/articles/${id}/summary`),
 

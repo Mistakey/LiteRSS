@@ -142,7 +142,7 @@
   - `GET /api/articles/cards?ids=<id>,...`：按给定顺序返回卡片（每次至多 `library.MaxCards` 200 个），已不在库里的 ID 跳过（保留期清理）。
     卡片含源标题（源已不在 `feeds` 时为空）、URL、标题、标题译文（空为未判定，等于原标题为「已判定中文」）、缩略图、`published_at`、显示状态，
     以及后端从 RSS 正文抽的纯文本摘录 `excerpt`（`library.Excerpt`：去标签、解实体、跳过脚本样式等不可见元素、合并空白、最多 200 字符），前端用插值渲染。
-  - `GET /api/articles/{id}/content`：`{content}`，RSS 正文原样（不可信 HTML，由前端清洗，spec D16）；没有正文为空串。
+  - `GET /api/articles/{id}/content`：`{content, fulltext}`，RSS 正文与已缓存的全文原样（不可信 HTML，由前端清洗，spec D16）；没有的为空串。
   - `GET /api/unread-counts`：`{total, feeds, tags}`，按显示状态计未读，同 URL 组在每个范围内计一次（URL 为空的条目各计一次）；没有未读的源与标签不出现。
     三者在一条语句里算出，彼此一致。
   - `GET /api/subscriptions`：`{categories: [{id, label, feeds}], feeds}`，标签按名、源按标题排序（不区分 ASCII 大小写）；
@@ -156,7 +156,7 @@
 - 内容动作（`routes/content.go`，经 `internal/enrich`，见下节）都用 POST：它们写本地缓存表，并替用户出网。失败原因以中文文案随 200 返回，界面直接显示；只有找不到文章（404）、参数不合法（400）与程序错误（500）走状态码：
   - `POST /api/articles/{id}/fulltext`：`{outcome, content, message}`，`outcome` 为 `success` 或一种失败（含 `no_link`：文章没有可抓的 `http(s)` 链接），`message` 是失败的中文原因。
   - `POST /api/articles/translate-titles` `{ids}`（至多 `library.MaxCards` 个）：`{titles: [{id, translated_title}], message}`，只含已判定的标题；留在未判定的不出现，`message` 说明原因（百度未配置或出错）。
-  - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（例如基于 RSS 正文）。
+  - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（「摘要基于 RSS 正文。」）。
 - 设置（`routes/settings.go` 只解析与回应，规则在 `settings.Panel`，spec D10）：
   - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含面板编辑的全部键（不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
     凭据（`encrypted`）一律为空串，`saved_secrets` 列出已存了值的凭据键——存下的凭据不回到前端。
@@ -178,9 +178,9 @@
 ## 内容动作（`internal/enrich`，spec D11）
 
 - `enrich.Service` 每次调用都从设置读百度与模型配置，改了即生效。出网客户端由 `main.go` 注入：网页用 `httputil.CreateWebScrapingClient`（30 秒），百度与模型共用一个 `httputil.CreateHTTPClient`（90 秒）（pitfall 8）。三张结果表都用「文章仍在才写」的 upsert，保留期清理与之并发时不会写出孤行。
-- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。同一文章并发的抓取合并为一次（点开自动抓全文与随后点「摘要」共用它），抓取不随某个请求取消，由客户端超时兜底。
+- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。只有阅读区的「抓取全文」按钮调它（spec D11）。成功时在同一个事务里写缓存并删掉该文章的摘要（它基于 RSS 正文），下次摘要按全文重做。同一文章并发的抓取合并为一次，抓取不随某个请求取消，由客户端超时兜底。
 - 标题翻译：同一时间只跑一次，已有行的原样返回；标题（空白合并为一行）经 `translation.LanguageDetector.ShouldTranslate` 判为中文的存原标题（「已判定中文」，pitfall 11、12）；其余按行拼成至多 `translation.BaiduMaxQueryBytes` 的请求交给百度，请求之间隔 1.1 秒（标准版每秒一次）。百度原样返回的存原标题；百度未配置或出错时这些条目不写行，保持未判定。
-- 摘要：`summaries` 存模型返回的 Markdown，每次返回时经 `summary.RenderHTML` 渲染（gomarkdown 的 `SkipHTML` 丢弃原始 HTML，`Safelink` 只留安全链接）。新摘要先取全文（与上面同一次抓取）；全文不可用或可见字符不足 300 时改用 RSS 正文并在 `note` 注明，两者都不足时不调模型、只给原因。输入经 `htmltext.Text` 抽成纯文本、至多 2 万字符；提示词写死、输出固定中文（`internal/summary`）。模型未配置（端点或模型为空）或调用失败也以 `note` 说明。摘要与它的 `note` 一起入库（`summaries.note`，schema 版本 2），再次打开照样说明；模型调用随请求取消，已生成的摘要即使请求已结束也写入。
+- 摘要：`summaries` 存模型返回的 Markdown，每次返回时经 `summary.RenderHTML` 渲染（gomarkdown 的 `SkipHTML` 丢弃原始 HTML，`Safelink` 只留安全链接）。新摘要只用阅读区显示的正文、从不抓取：`fulltext_cache` 有行用全文，否则用 RSS 正文并在 `note` 注明；可见字符不足 300 时不调模型、只给原因（RSS 正文太短时提示可以先抓全文）。基于 RSS 正文的摘要写库时若全文已在这期间缓存则不写，免得旧摘要盖过全文。输入经 `htmltext.Text` 抽成纯文本、至多 2 万字符；提示词写死、输出固定中文（`internal/summary`）。模型未配置（端点或模型为空）或调用失败也以 `note` 说明。摘要与它的 `note` 一起入库（`summaries.note`，schema 版本 2），再次打开照样说明；模型调用随请求取消，已生成的摘要即使请求已结束也写入。
 
 ## 设置（`internal/settings`、`internal/config`、`internal/crypto`）
 
@@ -211,16 +211,16 @@
     组件触发的动作失败时在 snackbar 给中文提示（单篇已读失败还原显示），翻页失败不前移、滚动时重试。
   - `sync`：长轮询 `GET /api/sync/state?since=<rev>`，失败 5 秒后重试；状态从运行中变为停下或上次成功时间变化时调用 `reader.afterSync`。
     `syncLabel` 把状态变成侧栏底部文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
-  - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文；`utils/article.ts` 判定为截断（可见文字少于 500，带题图的首段摘录也算；或以省略号、「阅读全文」「Read more」这类标记结尾）时
-    自动 `POST /api/articles/{id}/fulltext`，成功则全文替换显示，失败保留 RSS 正文并显示后端给的中文原因。全文抓不到且 RSS 正文不足 300 个可见字符（与后端摘要门槛一致）时摘要不可用。
-    「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
+  - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文与已缓存的全文，有全文就显示全文，从不自动抓取。`fetchFullText`（「抓取全文」按钮）才 `POST /api/articles/{id}/fulltext`：
+    成功则全文替换显示，已有摘要（或摘要说明）时清掉并重新请求摘要；失败保留 RSS 正文并显示后端给的中文原因。显示的正文不足 300 个可见字符（`utils/article.ts`，与后端摘要门槛一致）或正在抓取时摘要不可用；
+    RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
 - 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源用按 ID 取色的字母徽标，不加载源图标。
   右键任一节点「全部标为已读」；同步状态可点，调 `POST /api/sync/run`；齿轮打开设置面板。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
-- 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / 失败原因 +「在浏览器打开」）、摘要框、正文；
-  「摘要 / 在浏览器打开 / 标为未读（已读时）」在底部浮动条。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
+- 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / RSS 正文太短时建议先抓全文 / 失败原因 +「在浏览器打开」）、摘要框、正文；
+  「摘要 / 抓取全文（还没显示全文时）/ 在浏览器打开 / 标为未读（已读时）」在底部浮动条。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
 - 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`。
   它先在 `DOMParser` 的惰性文档里把 `iframe`、`embed`、`object`、`video`、`audio` 换成「在浏览器打开嵌入内容」链接（只收 http(s)，没有就删），把 `data-src`/`data-original` 换进 `src`；
   再交 DOMPurify（HTML + MathML，禁 style/form 类标签与 style/id/name 属性），属性钩子让 URL 只收绝对 http(s)（链接另收 `mailto:`、图片另收 `data:image/*`；`srcset` 按浏览器的切法逐个候选检查，描述符只收 `100w`、`2x` 这种形状），

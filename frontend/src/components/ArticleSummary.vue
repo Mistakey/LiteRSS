@@ -6,7 +6,7 @@ import Icon from './Icon.vue';
 
 // 摘要框：后端渲染的摘要 HTML 同样只经 sanitizeArticleHtml 进入 v-html（spec D16），
 // 是两个豁免 vue/no-v-html 的组件之一。note 是后端给的中文说明（依据或没生成的原因）。
-const props = defineProps<{ html: string; note: string; loading: boolean; waiting: boolean }>();
+const props = defineProps<{ html: string; note: string; loading: boolean }>();
 const emit = defineEmits<{ link: [url: string] }>();
 
 const safe = computed(() => sanitizeArticleHtml(props.html));
@@ -22,7 +22,7 @@ function onClick(e: MouseEvent) {
   <section class="summary" :class="{ refused: !loading && !html }">
     <div class="h"><Icon name="spark" />AI 摘要</div>
     <template v-if="loading">
-      <div class="wait">{{ waiting ? '等待全文抓取完成后生成摘要…' : '正在生成摘要…' }}</div>
+      <div class="wait">正在生成摘要…</div>
       <div class="skeleton w1"></div>
       <div class="skeleton w2"></div>
       <div class="skeleton w3"></div>

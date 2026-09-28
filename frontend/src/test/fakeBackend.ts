@@ -53,6 +53,8 @@ export class FakeBackend {
   syncStates: SyncState[] = [];
   /** 抓全文的结果（按 ID）；没有的回 no_link。 */
   fullTexts: Record<number, FullText> = {};
+  /** 已缓存的全文（按 ID），随正文一起返回；抓全文成功时写入。 */
+  cachedFullTexts: Record<number, string> = {};
   /** 摘要的结果（按 ID）；没有的回「还没有配置摘要模型」。 */
   summaries: Record<number, Summary> = {};
   /** 已存的设置，凭据按明文存；GET 时凭据回空串、列进 saved_secrets。 */
@@ -164,19 +166,21 @@ export class FakeBackend {
     const content = url.pathname.match(/^\/api\/articles\/(\d+)\/content$/);
     if (method === 'GET' && content) {
       const a = this.byId(Number(content[1]));
-      return a ? json({ content: a.content ?? '' }) : new Response('not found', { status: 404 });
+      return a
+        ? json({ content: a.content ?? '', fulltext: this.cachedFullTexts[a.id] ?? '' })
+        : new Response('not found', { status: 404 });
     }
     const action = url.pathname.match(/^\/api\/articles\/(\d+)\/(fulltext|summary)$/);
     if (method === 'POST' && action) {
       const id = Number(action[1]);
       if (action[2] === 'fulltext') {
-        return json(
-          this.fullTexts[id] ?? {
-            outcome: 'no_link',
-            content: '',
-            message: '这篇文章没有可抓取的原文链接。',
-          }
-        );
+        const ft = this.fullTexts[id] ?? {
+          outcome: 'no_link',
+          content: '',
+          message: '这篇文章没有可抓取的原文链接。',
+        };
+        if (ft.outcome === 'success') this.cachedFullTexts[id] = ft.content;
+        return json(ft);
       }
       return json(this.summaries[id] ?? { html: '', note: '还没有配置摘要模型，请在设置里填写。' });
     }

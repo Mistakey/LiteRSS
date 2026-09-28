@@ -10,7 +10,8 @@ import FeedBadge from './FeedBadge.vue';
 import Icon from './Icon.vue';
 import ImageViewer from './ImageViewer.vue';
 
-// 详情栏（spec D15）：无工具栏；标题块、抓全文提示、摘要框、正文；「摘要 / 在浏览器打开 / 标为未读」在底部浮动条。
+// 详情栏（spec D15）：无工具栏；标题块、抓全文提示、摘要框、正文；
+// 「摘要 / 抓取全文 / 在浏览器打开 / 标为未读」在底部浮动条，已显示全文时没有「抓取全文」。
 const reader = useReader();
 const detail = useDetail();
 const now = useNow();
@@ -27,6 +28,11 @@ const summaryLabel = computed(() =>
 );
 /** 抓取失败且 RSS 正文太短：提示里的「在浏览器打开」是主按钮。 */
 const shortFailure = computed(() => detail.fetchStatus === 'failed' && !detail.canSummarize);
+const summaryTitle = computed(() => {
+  if (detail.canSummarize) return undefined;
+  if (detail.fetchStatus === 'fetching') return '全文抓取中';
+  return detail.fetchStatus === 'ok' ? '正文太短，无法摘要' : '正文太短，可以先抓取全文';
+});
 
 watch(
   () => detail.id,
@@ -66,7 +72,14 @@ function toggleRead() {
           </div>
           <div v-if="detail.fetchStatus === 'fetching'" class="notice info">
             <Icon name="refresh" class="spin" />
-            <div class="grow">RSS 里的正文被截断，正在抓取全文…</div>
+            <div class="grow">正在抓取全文…</div>
+          </div>
+          <div v-else-if="detail.suggestFullText" class="notice info">
+            <Icon name="cloud" />
+            <div class="grow">RSS 只提供了很少的内容，可以先抓取全文再生成摘要。</div>
+            <button class="btn primary" @click="detail.fetchFullText">
+              <Icon name="cloud" />抓取全文
+            </button>
           </div>
           <div v-else-if="detail.fetchStatus === 'failed'" class="notice warn">
             <Icon name="warn" />
@@ -88,7 +101,6 @@ function toggleRead() {
             :html="detail.summaryHtml"
             :note="detail.summaryNote"
             :loading="detail.summaryLoading"
-            :waiting="detail.fetchStatus === 'fetching'"
             @link="detail.openLink"
           />
 
@@ -109,10 +121,18 @@ function toggleRead() {
         <button
           class="btn primary"
           :disabled="!detail.canSummarize || detail.summaryLoading || !!detail.summaryHtml"
-          :title="detail.canSummarize ? undefined : '正文太短，无法摘要'"
+          :title="summaryTitle"
           @click="detail.summarize"
         >
           <Icon name="spark" />{{ summaryLabel }}
+        </button>
+        <button
+          v-if="detail.fetchStatus !== 'ok'"
+          class="btn"
+          :disabled="detail.fetchStatus === 'fetching' || detail.rss === null"
+          @click="detail.fetchFullText"
+        >
+          <Icon name="cloud" />{{ detail.fetchStatus === 'fetching' ? '抓取中…' : '抓取全文' }}
         </button>
         <button class="btn" @click="openInBrowser"><Icon name="ext" />在浏览器打开</button>
         <span class="div"></span>

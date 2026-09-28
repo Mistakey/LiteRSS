@@ -51,7 +51,7 @@ async function openRow(id: number) {
 }
 
 describe('详情', () => {
-  it('标题块显示译文与原标题，正文经清洗，浮动条三个动作', async () => {
+  it('标题块显示译文与原标题，正文经清洗，浮动条的动作', async () => {
     const w = await openRow(3);
     expect(w.find('.reader h1').text()).toBe('英文译文');
     expect(w.find('.reader .orig').text()).toBe('English title');
@@ -60,6 +60,7 @@ describe('详情', () => {
     expect(body.findAll('img[src]')).toHaveLength(2);
     expect(w.findAll('.float-bar .btn').map((b) => b.text())).toEqual([
       '摘要',
+      '抓取全文',
       '在浏览器打开',
       '标为未读',
     ]);
@@ -74,42 +75,70 @@ describe('详情', () => {
     expect(be.callsTo('POST', '/api/browser/open')[0].body).toEqual({
       url: 'https://site.example/p',
     });
-    await w.findAll('.float-bar .btn')[2].trigger('click');
+    await w.find('.float-bar .btn.ghost').trigger('click');
     await settle();
     expect(be.callsTo('POST', '/api/articles/3/read').at(-1)!.body).toEqual({ read: false });
-    expect(w.findAll('.float-bar .btn')[2].text()).toBe('标为已读');
+    expect(w.find('.float-bar .btn.ghost').text()).toBe('标为已读');
     w.unmount();
   });
 
-  it('抓取成功：全文替换显示', async () => {
-    be.fullTexts[2] = { outcome: 'success', content: '<p>抓到的全文</p>', message: '' };
+  it('打开不抓全文；RSS 正文太短时提示可以先抓全文，摘要不可用', async () => {
     const w = await openRow(2);
-    expect(w.find('.article-body').text()).toBe('抓到的全文');
-    expect(w.find('.notice').exists()).toBe(false);
-    w.unmount();
-  });
-
-  it('抓取失败、正文太短：显示原因与在浏览器打开，摘要不可用', async () => {
-    be.fullTexts[2] = { outcome: 'blocked', content: '', message: '站点拒绝了这次抓取。' };
-    const w = await openRow(2);
-    const notice = w.find('.notice.warn');
-    expect(notice.text()).toContain('站点拒绝了这次抓取。');
-    expect(notice.text()).toContain('无法生成摘要');
-    expect(notice.find('.btn.primary').text()).toBe('在浏览器打开');
+    expect(be.callsTo('POST', '/api/articles/2/fulltext')).toHaveLength(0);
+    const notice = w.find('.notice.info');
+    expect(notice.text()).toContain('可以先抓取全文');
+    expect(notice.find('.btn.primary').text()).toBe('抓取全文');
     expect(w.find('.float-bar .btn').attributes('disabled')).toBeDefined();
     expect(w.find('.article-body').text()).toBe('摘录…');
     w.unmount();
   });
 
-  it('抓取失败、正文够长：可以摘要，摘要带依据说明', async () => {
-    be.fullTexts[1] = { outcome: 'no_content', content: '', message: '这一页没有可提取的正文。' };
-    be.summaries[1] = { html: '<ul><li>要点</li></ul>', note: '摘要基于 RSS 正文。' };
+  it('点「抓取全文」成功：全文替换显示，按钮与提示消失', async () => {
+    be.fullTexts[2] = { outcome: 'success', content: '<p>抓到的全文</p>', message: '' };
+    const w = await openRow(2);
+    await w.find('.notice .btn.primary').trigger('click');
+    await settle();
+    expect(w.find('.article-body').text()).toBe('抓到的全文');
+    expect(w.find('.notice').exists()).toBe(false);
+    expect(w.findAll('.float-bar .btn').map((b) => b.text())).not.toContain('抓取全文');
+    w.unmount();
+  });
+
+  it('已缓存全文的文章打开即显示全文', async () => {
+    be.cachedFullTexts[2] = '<p>缓存的全文</p>';
+    const w = await openRow(2);
+    expect(w.find('.article-body').text()).toBe('缓存的全文');
+    expect(w.find('.notice').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('抓取失败：保留 RSS 正文，显示原因与在浏览器打开', async () => {
+    be.fullTexts[2] = { outcome: 'blocked', content: '', message: '站点拒绝了这次抓取。' };
+    const w = await openRow(2);
+    await w.findAll('.float-bar .btn')[1].trigger('click');
+    await settle();
+    const notice = w.find('.notice.warn');
+    expect(notice.text()).toContain('站点拒绝了这次抓取。');
+    expect(notice.text()).toContain('无法生成摘要');
+    expect(notice.find('.btn.primary').text()).toBe('在浏览器打开');
+    expect(w.find('.article-body').text()).toBe('摘录…');
+    w.unmount();
+  });
+
+  it('摘要后抓到全文：摘要按全文重新生成', async () => {
+    be.summaries[1] = { html: '<ul><li>RSS 要点</li></ul>', note: '摘要基于 RSS 正文。' };
     const w = await openRow(1);
-    expect(w.find('.notice.warn').text()).toContain('下面显示的是 RSS 提供的正文');
     await w.find('.float-bar .btn').trigger('click');
     await settle();
-    expect(w.find('.summary li').text()).toBe('要点');
+    expect(w.find('.summary li').text()).toBe('RSS 要点');
     expect(w.find('.summary .note').text()).toBe('摘要基于 RSS 正文。');
+
+    be.fullTexts[1] = { outcome: 'success', content: LONG, message: '' };
+    be.summaries[1] = { html: '<ul><li>全文要点</li></ul>', note: '' };
+    await w.findAll('.float-bar .btn')[1].trigger('click');
+    await settle();
+    expect(w.find('.summary li').text()).toBe('全文要点');
+    expect(w.find('.summary .note').exists()).toBe(false);
     expect(w.find('.float-bar .btn').text()).toBe('已摘要');
     w.unmount();
   });

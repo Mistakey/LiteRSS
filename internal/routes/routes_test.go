@@ -294,10 +294,11 @@ func TestArticleContent(t *testing.T) {
 	api := newTestAPI(t)
 	api.exec(t, `INSERT INTO articles (item_id, stream_id, published_at) VALUES (100, 'feed/1', 1)`)
 	api.exec(t, `INSERT INTO article_contents (item_id, content) VALUES (100, '<p>body</p>')`)
+	api.exec(t, `INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (100, '<p>full</p>', 1)`)
 
 	var got map[string]string
 	api.getJSON(t, "/api/articles/100/content", &got)
-	if got["content"] != "<p>body</p>" {
+	if got["content"] != "<p>body</p>" || got["fulltext"] != "<p>full</p>" {
 		t.Fatalf("content = %v", got)
 	}
 	if rec := api.do(t, http.MethodGet, "/api/articles/300/content"); rec.Code != http.StatusNotFound {

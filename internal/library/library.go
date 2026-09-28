@@ -155,20 +155,28 @@ func (l *Library) Cards(ctx context.Context, ids []int64) ([]Card, error) {
 	return cards, nil
 }
 
-// Content returns an article's RSS body, untrusted HTML the frontend
-// sanitizes (spec D16); empty when the feed sent none.
-func (l *Library) Content(ctx context.Context, id int64) (string, error) {
-	var content string
+// Body is what the reader shows of an article: the RSS body and the full
+// text cached by an earlier fetch, both untrusted HTML the frontend
+// sanitizes (spec D16) and empty when missing.
+type Body struct {
+	Content  string `json:"content"`
+	FullText string `json:"fulltext"`
+}
+
+// Content returns an article's Body.
+func (l *Library) Content(ctx context.Context, id int64) (Body, error) {
+	var b Body
 	err := l.db.QueryRowContext(ctx,
-		`SELECT COALESCE(c.content, '') FROM articles a
-		 LEFT JOIN article_contents c ON c.item_id = a.item_id WHERE a.item_id = ?`, id).Scan(&content)
+		`SELECT COALESCE(c.content, ''), COALESCE(f.content, '') FROM articles a
+		 LEFT JOIN article_contents c ON c.item_id = a.item_id
+		 LEFT JOIN fulltext_cache f ON f.item_id = a.item_id WHERE a.item_id = ?`, id).Scan(&b.Content, &b.FullText)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("article %d: %w", id, ErrNotFound)
+		return Body{}, fmt.Errorf("article %d: %w", id, ErrNotFound)
 	}
 	if err != nil {
-		return "", fmt.Errorf("content: %w", err)
+		return Body{}, fmt.Errorf("content: %w", err)
 	}
-	return content, nil
+	return b, nil
 }
 
 // Counts are the sidebar's live unread counts: articles shown unread, an URL
