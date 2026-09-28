@@ -37,6 +37,33 @@ const MODEL_FORM: readonly Key[] = ['llm_endpoint', 'llm_model', 'llm_api_key'];
 
 export type TestName = 'freshrss' | 'model';
 
+export type GroupId = 'freshrss' | 'llm' | 'translation' | 'proxy' | 'app' | 'about';
+
+/** 面板左侧导航的分组，按显示顺序；每个可写的键恰好属于一组（「关于」没有键）。 */
+export const SETTING_GROUPS: readonly { id: GroupId; label: string; keys: readonly Key[] }[] = [
+  {
+    id: 'freshrss',
+    label: 'FreshRSS',
+    keys: [...FRESHRSS_FORM, 'freshrss_auto_sync_interval'],
+  },
+  { id: 'llm', label: '摘要模型', keys: MODEL_FORM },
+  { id: 'translation', label: '标题翻译', keys: ['baidu_app_id', 'baidu_secret_key'] },
+  {
+    id: 'proxy',
+    label: '网络代理',
+    keys: [
+      'proxy_mode',
+      'proxy_type',
+      'proxy_host',
+      'proxy_port',
+      'proxy_username',
+      'proxy_password',
+    ],
+  },
+  { id: 'app', label: '应用', keys: ['close_to_tray', 'startup_on_boot', 'update_check_enabled'] },
+  { id: 'about', label: '关于', keys: [] },
+];
+
 /** saved：已保存，显示掩码；editing：已保存、正在填新值；cleared：保存时清除；empty：没保存过。 */
 export type SecretState = 'saved' | 'editing' | 'cleared' | 'empty';
 
@@ -142,6 +169,22 @@ export const useSettings = defineStore('settings', () => {
 
   const dirty = computed(() => Object.keys(changes.value).length > 0 || cleared.size > 0);
 
+  /** 有没保存的改动的分组。 */
+  const dirtyGroups = computed(() => {
+    const out = new Set<GroupId>();
+    for (const g of SETTING_GROUPS) {
+      if (g.keys.some((k) => k in changes.value || cleared.has(k))) out.add(g.id);
+    }
+    return out;
+  });
+
+  /** 有不合法的值、保存会被拒的分组；保存报错时面板跳到第一个。 */
+  const invalidGroups = computed(() => {
+    const out = new Set<GroupId>();
+    if (!intervalValid.value) out.add('freshrss');
+    return out;
+  });
+
   /** 保存改过的键；成功返回 true，失败把原因放进 saveError。 */
   async function save() {
     if (!dirty.value) return true;
@@ -197,6 +240,8 @@ export const useSettings = defineStore('settings', () => {
     tests,
     changes,
     dirty,
+    dirtyGroups,
+    invalidGroups,
     intervalValid,
     load,
     secretState,

@@ -1,12 +1,40 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '../api';
+import { useNow } from '../composables/useNow';
+import { syncLabel, useSync } from '../stores/sync';
 import { detectHost, installEdgeResize, isMaximised } from '../utils/frame';
+import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import Icon from './Icon.vue';
 
-// 无边框窗口的标题栏（spec D4）：图标、拖动区，Windows 上还有三个窗口按钮。
-// 浏览器取证通道里没有宿主，它只是一条普通顶栏。
+// 无边框窗口的标题栏（spec D4）：应用菜单按钮（图标 +「LiteRSS」）、同步状态、拖动区，Windows 上还有三个窗口按钮。
+// 应用菜单（spec D15）：立即同步（右侧附同步状态）、设置…。浏览器取证通道里没有宿主，窗口相关的部分都不生效。
+const emit = defineEmits<{ settings: [] }>();
 const host = detectHost();
+const sync = useSync();
+const now = useNow();
+const syncText = computed(() => syncLabel(sync.state, now.value));
+const menu = ref<{ x: number; y: number } | null>(null);
+
+function toggleMenu(e: MouseEvent) {
+  if (menu.value) {
+    menu.value = null;
+    return;
+  }
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  menu.value = { x: r.left, y: r.bottom + 4 };
+}
+
+const menuItems = computed<MenuItem[]>(() => [
+  {
+    label: '立即同步',
+    icon: 'refresh',
+    hint: syncText.value,
+    disabled: !!sync.state?.running,
+    run: () => void sync.runNow(),
+  },
+  { label: '设置…', icon: 'gear', sep: true, run: () => emit('settings') },
+]);
 // public/ 里的文件；写成绑定，模板编译不会把它当模块导入。按缩放比例取对齐像素格的那一版，
 // 16px 显示的大图在 150% 下会糊。
 const logo = '/assets/logo-16.svg';
@@ -65,8 +93,20 @@ function onDblClick(e: MouseEvent) {
     @mouseup="armed = false"
     @dblclick="onDblClick"
   >
-    <img class="logo" :src="logo" :srcset="logoSrcset" alt="" draggable="false" />
-    <span class="name">LiteRSS</span>
+    <button
+      class="app-btn"
+      :class="{ open: menu }"
+      aria-haspopup="menu"
+      :aria-expanded="!!menu"
+      @click="toggleMenu"
+    >
+      <img class="logo" :src="logo" :srcset="logoSrcset" alt="" draggable="false" />
+      <span class="name">LiteRSS</span>
+      <Icon name="chev" class="caret" />
+    </button>
+    <span class="sync-state" :class="{ busy: sync.state?.running }" role="status">
+      <Icon v-if="sync.state?.running" name="refresh" class="spin" />{{ syncText }}
+    </span>
     <div v-if="host?.platform === 'windows'" class="win-buttons">
       <button aria-label="最小化" title="最小化" @click="api.window.minimise()">
         <Icon name="winMin" class="glyph" />
@@ -83,6 +123,8 @@ function onDblClick(e: MouseEvent) {
       </button>
     </div>
   </header>
+  <!-- 放在顶栏外：遮罩上的按下不能冒泡成顶栏的拖动 -->
+  <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menuItems" @close="menu = null" />
 </template>
 
 <style scoped>
@@ -92,15 +134,34 @@ function onDblClick(e: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-left: 12px;
+  padding-left: 6px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
 
-/* macOS 红绿灯压在左上角 */
+/* macOS 红绿灯压在左上角；按钮自带 6px 内边距，图标仍落在原来的位置 */
 .titlebar.mac {
-  padding-left: 80px;
+  padding-left: 74px;
+}
+
+.app-btn {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 6px;
+  border-radius: 6px;
+}
+
+.app-btn:hover,
+.app-btn.open {
+  background: var(--bg-hover);
+}
+
+.app-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .logo {
@@ -112,6 +173,37 @@ function onDblClick(e: MouseEvent) {
 .name {
   font-size: 12px;
   color: var(--text-2);
+}
+
+.caret {
+  width: 12px;
+  height: 12px;
+  color: var(--text-3);
+}
+
+.sync-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.sync-state .spin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .win-buttons {

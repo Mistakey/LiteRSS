@@ -198,7 +198,9 @@
 
 - `index.html` 不加载任何外部资源；`src/main.ts` 装上 Pinia 并挂载 `App.vue`：顶栏 `TitleBar`，其下按布局原型变体 B 的三栏（`AppSidebar`、`ArticleList`、`ArticleDetail`），加左下角的 `UndoSnackbar`。
 - `TitleBar` 兼作无边框窗口的标题栏（spec D4）：`utils/frame.ts` 的 `detectHost` 看页面里有没有 `chrome.webview`（Windows）或
-  `webkit.messageHandlers.external`（macOS）。没有宿主（浏览器取证通道）时只是图标加名称的普通顶栏。有宿主时，在顶栏按下后移动才发 `wails:drag`
+  `webkit.messageHandlers.external`（macOS）。顶栏左侧是图标 +「LiteRSS」合成的应用菜单按钮（通用 `ContextMenu`：「立即同步」右侧附同步状态、同步中置灰，调 `POST /api/sync/run`；「设置…」打开设置面板），
+  名称右边是同步状态文案（spec D15）；按钮与菜单都不算拖动区，菜单挂在顶栏外，遮罩上的按下不会冒泡成拖动。
+  没有宿主（浏览器取证通道）时它就是一条普通顶栏。有宿主时，在顶栏按下后移动才发 `wails:drag`
   （按下就交给系统会吞掉双击）；双击在 Windows 调 `POST /api/window/maximise`，在 macOS 发 `wails:drag:doubleclick`（Wails 只在 macOS 处理它，跟随系统偏好）。
   Windows 上还画最小化 / 最大化（还原）/ 关闭三个按钮，并由 `installEdgeResize` 在窗口边缘 5px（角为 L 形 15px）换光标、按下后移动发 `wails:resize:<边>`；
   窗口铺满工作区（`isMaximised`）时按钮显示「还原」且不缩放。
@@ -211,13 +213,13 @@
     慢到的旧视图响应按进入次数丢弃；本地改过显示状态的卡片不被改动之前发出的刷新覆盖。未判定的标题在卡片载入后请求一次译文，失败的不重试（pitfall 12）。
     组件触发的动作失败时在 snackbar 给中文提示（单篇已读失败还原显示），翻页失败不前移、滚动时重试。
   - `sync`：长轮询 `GET /api/sync/state?since=<rev>`，失败 5 秒后重试；状态从运行中变为停下或上次成功时间变化时调用 `reader.afterSync`。
-    `syncLabel` 把状态变成侧栏底部文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
+    `syncLabel` 把状态变成顶栏与应用菜单里的同步状态文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
   - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文与已缓存的全文，有全文就显示全文，从不自动抓取。`fetchFullText`（「抓取全文」按钮）才 `POST /api/articles/{id}/fulltext`：
     成功则全文替换显示，已有摘要（或摘要说明）时清掉并重新请求摘要；失败保留 RSS 正文并显示后端给的中文原因。显示的正文不足 300 个可见字符（`utils/article.ts`，与后端摘要门槛一致）或正在抓取时摘要不可用；
     RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
 - 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源用按 ID 取色的字母徽标，不加载源图标。
-  右键任一节点「全部标为已读」；同步状态可点，调 `POST /api/sync/run`；齿轮打开设置面板。
+  右键任一节点「全部标为已读」。侧栏没有底栏：立即同步与设置都在顶栏应用菜单里。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
 - 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / RSS 正文太短时建议先抓全文 / 失败原因 +「在浏览器打开」）、摘要框、正文；
@@ -229,8 +231,10 @@
   清洗之后才做增强（`utils/enhance.ts`：KaTeX 公式、highlight.js 代码高亮，类名同时读 FreshRSS 的 `data-sanitized-class`），正文含 `$`、`\`、`<pre>` 或 `math` 时才动态载入这个模块。
 - 图片查看器（`ImageViewer`，spec D15）：点正文里的图打开，收正文里全部图片；滚轮以指针为中心缩放，双击在适应窗口与原始大小之间切换，图片超出窗口时可拖动平移，
   点背景 / ✕ / Esc 关闭，多图左右箭头与方向键切换，载入失败时给提示；几何在 `utils/viewer.ts`。正文与摘要的链接点击规则在 `utils/links.ts`。
-- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：一个模态框、一页滚动，分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于；
-  打开时 `GET /api/settings` 作草稿，「保存」只把清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
+- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：固定大小的模态框（780×520，窗口小时收缩），左侧导航按 `SETTING_GROUPS` 依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于，
+  右侧一次只显示一组（`v-show`，切换不丢草稿、测试结果与检查更新状态），底部常驻取消 / 保存。导航项用圆点标出有未保存改动（`dirtyGroups`）或有不合法值（`invalidGroups`，目前只有同步间隔）的分组，
+  保存因不合法值被拒时跳到那一组并聚焦输入框。
+  打开时 `GET /api/settings` 作草稿，「保存」一次把所有分组里清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
   凭据不回显（`SecretField`，状态在 `settings.secretState`）：已存的显示不可编辑的掩码与「修改」「清除」，「修改」给空输入框并可取消，「清除」在保存前可撤销、保存时调 `POST /api/settings/secrets/clear`；没存过的是普通输入框，填了才提交；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
   手动代理才显示类型、地址与认证；「关于」显示 `GET /api/version`，「检查更新」调 `GET /api/update/check`：有新版本且 `in_app` 时显示「更新到 X」，
   点一次调 `POST /api/update/start`，之后每 500 毫秒轮询 `GET /api/update/status` 显示下载进度条与各步文字，失败时显示原因与「去发布页」；

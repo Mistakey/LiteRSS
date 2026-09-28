@@ -30,14 +30,33 @@ async function mounted() {
   return wrapper;
 }
 
+function nav(w: Awaited<ReturnType<typeof mounted>>, id: string) {
+  return w.find(`[data-nav=${id}]`);
+}
+
+function visibleGroups(w: Awaited<ReturnType<typeof mounted>>) {
+  return w
+    .findAll('fieldset.group')
+    .filter((g) => g.isVisible())
+    .map((g) => g.attributes('data-group'));
+}
+
+function marked(w: Awaited<ReturnType<typeof mounted>>, kind: 'dirty' | 'invalid') {
+  return w
+    .findAll('.nav-item')
+    .filter((n) => n.find(`.mark.${kind}`).exists())
+    .map((n) => n.attributes('data-nav'));
+}
+
 function updates() {
   return be.callsTo('POST', '/api/settings/update').map((c) => c.body);
 }
 
 describe('设置面板', () => {
-  it('分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于', async () => {
+  it('左侧导航依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于，一次只显示一组', async () => {
     const w = await mounted();
-    expect(w.findAll('legend').map((l) => l.text())).toEqual([
+    expect(w.find('.side h2').text()).toBe('设置');
+    expect(w.findAll('.nav-item').map((n) => n.text())).toEqual([
       'FreshRSS',
       '摘要模型',
       '标题翻译',
@@ -45,9 +64,68 @@ describe('设置面板', () => {
       '应用',
       '关于',
     ]);
+    expect(visibleGroups(w)).toEqual(['freshrss']);
+    expect(w.find('.head h3').text()).toBe('FreshRSS');
+    expect(nav(w, 'freshrss').attributes('aria-current')).toBe('true');
     expect((w.find('[name=freshrss_server_url]').element as HTMLInputElement).value).toBe(
       'http://nas:8080'
     );
+
+    await nav(w, 'proxy').trigger('click');
+    expect(visibleGroups(w)).toEqual(['proxy']);
+    expect(w.find('.head h3').text()).toBe('网络代理');
+    expect(nav(w, 'freshrss').attributes('aria-current')).toBeUndefined();
+    w.unmount();
+  });
+
+  it('切换分组不丢草稿、测试结果与检查更新的结果', async () => {
+    be.update = { ...be.update, latest_version: '0.2.0', update_available: true };
+    const w = await mounted();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await w.find('[data-group=freshrss] .test .btn').trigger('click');
+    await settle();
+    await nav(w, 'about').trigger('click');
+    await w.find('[data-group=about] .btn').trigger('click');
+    await settle();
+    await nav(w, 'app').trigger('click');
+    await nav(w, 'freshrss').trigger('click');
+    expect((w.find('[name=freshrss_username]').element as HTMLInputElement).value).toBe('you');
+    expect(w.find('[data-test=freshrss]').text()).toBe('连接成功。');
+    await nav(w, 'about').trigger('click');
+    expect(w.find('[data-test=update]').text()).toBe('有新版本 0.2.0。');
+    expect(be.callsTo('GET', '/api/update/check')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('保存一次提交所有分组的改动；有改动的分组在导航上标出', async () => {
+    const w = await mounted();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await nav(w, 'llm').trigger('click');
+    await w.find('[name=llm_model]').setValue('m2');
+    await nav(w, 'app').trigger('click');
+    await w.find('[name=startup_on_boot]').setValue(true);
+    expect(marked(w, 'dirty')).toEqual(['freshrss', 'llm', 'app']);
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([
+      { freshrss_username: 'you', llm_model: 'm2', startup_on_boot: true },
+    ]);
+    expect(w.emitted('close')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('同步间隔不合法时标出 FreshRSS 组，在别的组点保存会跳回并聚焦', async () => {
+    const w = await mounted();
+    await w.find('[name=freshrss_auto_sync_interval]').setValue('0');
+    expect(marked(w, 'invalid')).toEqual(['freshrss']);
+    await nav(w, 'app').trigger('click');
+    await w.find('[name=close_to_tray]').setValue(false);
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([]);
+    expect(visibleGroups(w)).toEqual(['freshrss']);
+    expect(document.activeElement?.getAttribute('name')).toBe('freshrss_auto_sync_interval');
+    expect(w.find('.save-error').text()).toContain('同步间隔');
     w.unmount();
   });
 

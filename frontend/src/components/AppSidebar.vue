@@ -1,23 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import { isLabel, READING_LIST } from '../api';
-import { useNow } from '../composables/useNow';
 import { useReader } from '../stores/reader';
-import { syncLabel, useSync } from '../stores/sync';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import FeedBadge from './FeedBadge.vue';
 import Icon from './Icon.vue';
 
-defineEmits<{ settings: [] }>();
-
 const reader = useReader();
-const sync = useSync();
-const now = useNow();
 
 const collapsed = reactive(new Set<string>());
 const menu = ref<{ x: number; y: number; stream: string } | null>(null);
-
-const syncText = computed(() => syncLabel(sync.state, now.value));
 
 function toggle(id: string) {
   if (collapsed.has(id)) collapsed.delete(id);
@@ -127,21 +119,6 @@ const menuCaption = computed(() => {
         <span v-if="reader.unreadIn(f.id)" class="cnt">{{ reader.unreadIn(f.id) }}</span>
       </div>
     </nav>
-
-    <div class="sb-foot">
-      <button
-        class="sync-link"
-        title="立即同步"
-        :disabled="sync.state?.running"
-        @click="sync.runNow()"
-      >
-        <Icon name="refresh" :class="{ spin: sync.state?.running }" />{{ syncText }}
-      </button>
-      <span class="grow"></span>
-      <button class="icon-btn" title="设置" aria-label="设置" @click="$emit('settings')">
-        <Icon name="gear" />
-      </button>
-    </div>
 
     <ContextMenu
       v-if="menu"
@@ -276,44 +253,5 @@ const menuCaption = computed(() => {
   height: 1px;
   background: var(--border);
   margin: 6px 8px;
-}
-
-.sb-foot {
-  flex: none;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.sync-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  color: var(--text-2);
-}
-
-.sync-link:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.sync-link:disabled {
-  cursor: default;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 </style>

@@ -150,10 +150,14 @@ describe('列表', () => {
 });
 
 describe('设置入口', () => {
-  it('侧栏齿轮打开设置面板，关闭后消失', async () => {
+  it('侧栏没有底栏；顶栏应用菜单「设置…」打开设置面板，关闭后消失', async () => {
     const w = await mounted();
+    expect(w.find('.sidebar .sb-foot').exists()).toBe(false);
+    expect(w.find('.sidebar').text()).not.toContain('同步');
     expect(w.find('[role=dialog]').exists()).toBe(false);
-    await w.find('.sb-foot .icon-btn').trigger('click');
+    await w.find('.titlebar .app-btn').trigger('click');
+    const item = w.findAll('.ctx [role=menuitem]').find((b) => b.text() === '设置…');
+    await item!.trigger('click');
     await settle();
     expect(w.find('[role=dialog] h2').text()).toBe('设置');
     await w.find('[role=dialog] .head .icon-btn').trigger('click');
