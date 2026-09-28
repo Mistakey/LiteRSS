@@ -82,7 +82,7 @@ const menuCaption = computed(() => {
       </div>
       <div class="sb-sep"></div>
 
-      <template v-for="cat in reader.tree.categories" :key="cat.id">
+      <template v-for="cat in reader.sidebarTree.categories" :key="cat.id">
         <div
           class="node cat"
           :class="{ on: reader.stream === cat.id, dim: !reader.unreadIn(cat.id) }"
@@ -116,7 +116,7 @@ const menuCaption = computed(() => {
       </template>
 
       <div
-        v-for="f in reader.tree.feeds"
+        v-for="f in reader.sidebarTree.feeds"
         :key="f.id"
         class="node feed top"
         :class="{ on: reader.stream === f.id, dim: !reader.unreadIn(f.id) }"

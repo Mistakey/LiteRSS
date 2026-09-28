@@ -70,6 +70,16 @@ describe('侧栏', () => {
     expect(w.find('.snackbar button').text()).toBe('撤销');
     w.unmount();
   });
+
+  it('未读视图里没选中的源读到零未读后从侧栏消失', async () => {
+    const w = await mounted();
+    await w.findAll('.tree .node')[3].trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await w.find('.ctx button').trigger('click');
+    await settle();
+    const names = w.findAll('.tree .node .name').map((n) => n.text());
+    expect(names).toEqual(['全部订阅', '科技', '少数派']);
+    w.unmount();
+  });
 });
 
 describe('列表', () => {
