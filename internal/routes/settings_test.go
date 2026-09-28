@@ -96,6 +96,7 @@ func TestUpdateSettingsRejectsUnknownKeys(t *testing.T) {
 		`{"llm_model": "m", "freshrss_auto_sync_interval": 0}`,
 		`{"llm_model": 3}`,
 		`{"llm_model": "m", "proxy_mode": "manual", "proxy_host": ""}`,
+		`{"llm_model": "m", "llm_api_key": ""}`,
 		`["llm_model"]`,
 	} {
 		if rec := api.send(t, http.MethodPost, "/api/settings/update", body); rec.Code != http.StatusBadRequest {
@@ -104,6 +105,48 @@ func TestUpdateSettingsRejectsUnknownKeys(t *testing.T) {
 	}
 	if v := api.stored(t); v["llm_model"] != "" || v["proxy_mode"] != "system" {
 		t.Fatalf("a refused write was stored: %v", v)
+	}
+}
+
+// TestClearSecret deletes one stored credential: an empty string in an
+// update is refused, so keeping and clearing never look alike.
+func TestClearSecret(t *testing.T) {
+	api := newTestAPI(t)
+	if err := api.store.Update(context.Background(), map[string]string{
+		"llm_api_key": "k", "freshrss_api_password": "p", "llm_model": "m",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got settings.View
+	api.postJSON(t, "/api/settings/secrets/clear", `{"key": "llm_api_key"}`, &got)
+	if v := api.stored(t); v["llm_api_key"] != "" || v["freshrss_api_password"] != "p" || v["llm_model"] != "m" {
+		t.Fatalf("stored = %v", v)
+	}
+	if !slices.Equal(got.SavedSecrets, []string{"freshrss_api_password"}) || got.Settings["llm_api_key"] != "" {
+		t.Fatalf("answer = %+v", got)
+	}
+	if api.triggered != 0 {
+		t.Fatal("clearing the model key started a sync")
+	}
+	api.postJSON(t, "/api/settings/secrets/clear", `{"key": "freshrss_api_password"}`, &got)
+	if len(got.SavedSecrets) != 0 || api.triggered != 1 {
+		t.Fatalf("answer = %+v, %d syncs", got, api.triggered)
+	}
+
+	for _, body := range []string{
+		`{"key": "llm_model"}`,
+		`{"key": "ai_api_key"}`,
+		`{"key": "window_x"}`,
+		`{"key": "llm_api_key", "also": 1}`,
+		`{}`,
+	} {
+		if rec := api.send(t, http.MethodPost, "/api/settings/secrets/clear", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", body, rec.Code)
+		}
+	}
+	if v := api.stored(t); v["llm_model"] != "m" {
+		t.Fatalf("a refused clear changed %v", v)
 	}
 }
 

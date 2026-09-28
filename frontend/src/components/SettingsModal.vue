@@ -4,26 +4,16 @@ import { api, type UpdateCheck, type UpdateStatus } from '../api';
 import { useSettings, type TestName } from '../stores/settings';
 import type { SettingsData } from '../types/settings.generated';
 import Icon from './Icon.vue';
+import SecretField from './SecretField.vue';
 
 // 设置面板（spec D10）：一个模态框、一页滚动，分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于。
 const emit = defineEmits<{ close: [] }>();
 const settings = useSettings();
 const d = settings.draft;
 
-type SecretKey =
-  | 'freshrss_api_password'
-  | 'llm_api_key'
-  | 'baidu_secret_key'
-  | 'proxy_username'
-  | 'proxy_password';
-
 const version = ref('');
 const update = ref<UpdateCheck | null>(null);
 const checking = ref(false);
-
-function secretPlaceholder(key: SecretKey, empty = '') {
-  return settings.saved(key) ? '已保存，留空不改' : empty;
-}
 
 function testLabel(name: TestName) {
   return settings.tests[name]?.running ? '正在测试…' : '测试连接';
@@ -185,24 +175,7 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
           </label>
           <div class="row">
             <label class="lbl" for="freshrss_api_password">API 密码</label>
-            <div class="secret">
-              <input
-                id="freshrss_api_password"
-                v-model="d.freshrss_api_password"
-                name="freshrss_api_password"
-                type="password"
-                autocomplete="off"
-                :placeholder="secretPlaceholder('freshrss_api_password')"
-              />
-              <button
-                v-if="settings.saved('freshrss_api_password')"
-                type="button"
-                class="link"
-                @click="settings.clearSecret('freshrss_api_password')"
-              >
-                清除
-              </button>
-            </div>
+            <SecretField name="freshrss_api_password" />
           </div>
           <label class="row">
             <span class="lbl">同步间隔</span>
@@ -259,24 +232,7 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
           </label>
           <div class="row">
             <label class="lbl" for="llm_api_key">API 密钥</label>
-            <div class="secret">
-              <input
-                id="llm_api_key"
-                v-model="d.llm_api_key"
-                name="llm_api_key"
-                type="password"
-                autocomplete="off"
-                :placeholder="secretPlaceholder('llm_api_key', '本地模型可留空')"
-              />
-              <button
-                v-if="settings.saved('llm_api_key')"
-                type="button"
-                class="link"
-                @click="settings.clearSecret('llm_api_key')"
-              >
-                清除
-              </button>
-            </div>
+            <SecretField name="llm_api_key" placeholder="本地模型可留空" />
           </div>
           <p class="tip">OpenAI 兼容接口。只用来给英文文章生成中文摘要，点「摘要」时才调用。</p>
           <div class="test">
@@ -308,24 +264,7 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
           </label>
           <div class="row">
             <label class="lbl" for="baidu_secret_key">百度密钥</label>
-            <div class="secret">
-              <input
-                id="baidu_secret_key"
-                v-model="d.baidu_secret_key"
-                name="baidu_secret_key"
-                type="password"
-                autocomplete="off"
-                :placeholder="secretPlaceholder('baidu_secret_key')"
-              />
-              <button
-                v-if="settings.saved('baidu_secret_key')"
-                type="button"
-                class="link"
-                @click="settings.clearSecret('baidu_secret_key')"
-              >
-                清除
-              </button>
-            </div>
+            <SecretField name="baidu_secret_key" />
           </div>
           <p class="tip">英文标题经百度通用翻译译成中文，列表里只显示译文。</p>
         </fieldset>
@@ -375,44 +314,11 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
             </div>
             <div class="row">
               <label class="lbl" for="proxy_username">用户名</label>
-              <div class="secret">
-                <input
-                  id="proxy_username"
-                  v-model="d.proxy_username"
-                  name="proxy_username"
-                  autocomplete="off"
-                  :placeholder="secretPlaceholder('proxy_username', '不需要认证可留空')"
-                />
-                <button
-                  v-if="settings.saved('proxy_username')"
-                  type="button"
-                  class="link"
-                  @click="settings.clearSecret('proxy_username')"
-                >
-                  清除
-                </button>
-              </div>
+              <SecretField name="proxy_username" :password="false" placeholder="不需要认证可留空" />
             </div>
             <div class="row">
               <label class="lbl" for="proxy_password">密码</label>
-              <div class="secret">
-                <input
-                  id="proxy_password"
-                  v-model="d.proxy_password"
-                  name="proxy_password"
-                  type="password"
-                  autocomplete="off"
-                  :placeholder="secretPlaceholder('proxy_password')"
-                />
-                <button
-                  v-if="settings.saved('proxy_password')"
-                  type="button"
-                  class="link"
-                  @click="settings.clearSecret('proxy_password')"
-                >
-                  清除
-                </button>
-              </div>
+              <SecretField name="proxy_password" />
             </div>
           </template>
           <p class="tip">
@@ -633,7 +539,6 @@ input::placeholder {
   color: var(--text-2);
 }
 
-.secret,
 .host {
   display: flex;
   align-items: center;

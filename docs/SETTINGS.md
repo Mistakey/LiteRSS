@@ -57,7 +57,8 @@ schema 与生成物不同步。改了 schema 之后按 `.forge/config.md` 跑 Go
 前端经 `GET /api/settings` 与 `POST /api/settings/update` 读写，规则在 `settings.Panel`（形状见 [Architecture](ARCHITECTURE.md) 的 API 路由一节）。与 `Store` 不同的地方：
 
 - 值按 schema 类型以 JSON 字符串、布尔或整数收发，对应生成的 `SettingsData`；`internal` 键既不返回也不接受写入（400）。
-- 凭据不回显：读出时为空串，另有 `saved_secrets` 列出已存值的键。面板只提交用户改过的键，没动的凭据不传；传空串表示清除。
+- 凭据不回显：读出时为空串，另有 `saved_secrets` 列出已存值的键。面板只提交用户改过的键，没动的凭据不传。
+  `POST /api/settings/update` 拒收空串的凭据（400），清除只经 `POST /api/settings/secrets/clear` `{key}`（`settings.Panel.ClearSecret`），「不改」与「清空」不会混淆。
 - 写入 `proxy_*` 前先确认代理装得上，写后立即生效；写入 `freshrss_*` 后触发一次同步。
 
 ## 加密字段

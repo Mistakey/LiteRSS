@@ -160,9 +160,10 @@
 - 设置（`routes/settings.go` 只解析与回应，规则在 `settings.Panel`，spec D10）：
   - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含面板编辑的全部键（不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
     凭据（`encrypted`）一律为空串，`saved_secrets` 列出已存了值的凭据键——存下的凭据不回到前端。
-  - `POST /api/settings/update` `{key: value, ...}`：只写给出的键，值须是该键类型的 JSON 值。`internal` 键、schema 以外的键、类型不符、同步间隔小于 1、
+  - `POST /api/settings/update` `{key: value, ...}`：只写给出的键，值须是该键类型的 JSON 值。`internal` 键、schema 以外的键、类型不符、空串的凭据、同步间隔小于 1、
     装不上的代理（手动模式缺主机或端口）都整批拒收回 400，什么也不写。成功时回与 GET 相同的形状；写了 `proxy_*` 就立即 `httputil.ConfigureProxyFromSettings`，
     写了 `freshrss_*`（账号或同步间隔）就触发一次同步。写入不用 `PUT /api/settings`：同一路径已有 GET，路由表测试要求改状态路由的 GET 回 405。
+  - `POST /api/settings/secrets/clear` `{key}`：删除一个已存凭据（非凭据键回 400），回与 GET 相同的形状，副作用同写该键（`proxy_*` 重装代理、`freshrss_*` 触发同步）。
   - `POST /api/settings/freshrss/test` `{freshrss_server_url?, freshrss_username?, freshrss_api_password?}` 与 `POST /api/settings/llm/test`
     `{llm_endpoint?, llm_model?, llm_api_key?}`：`{ok, message}`，`message` 是中文结论。省略的字段取已存的值（面板拿不到已存的凭据，不改就不传），
     其他字段回 400。FreshRSS 用一个新客户端登录一次（局域网，不走代理，pitfall 9）；模型经共用出网客户端发一个极短请求（`summary.Model.Check`，失败原因按 `ai.ErrUnauthorized`、`ai.ErrModelNotFound` 区分）。各限时 20 秒。拒收一律匹配 `settings.ErrInvalid`，handler 据此回 400。
@@ -230,7 +231,7 @@
   点背景 / ✕ / Esc 关闭，多图左右箭头与方向键切换，载入失败时给提示；几何在 `utils/viewer.ts`。正文与摘要的链接点击规则在 `utils/links.ts`。
 - 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：一个模态框、一页滚动，分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于；
   打开时 `GET /api/settings` 作草稿，「保存」只把清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
-  凭据不回显：已存的显示「已保存，留空不改」，留空不提交，「清除」才提交空串；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
+  凭据不回显（`SecretField`，状态在 `settings.secretState`）：已存的显示不可编辑的掩码与「修改」「清除」，「修改」给空输入框并可取消，「清除」在保存前可撤销、保存时调 `POST /api/settings/secrets/clear`；没存过的是普通输入框，填了才提交；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
   手动代理才显示类型、地址与认证；「关于」显示 `GET /api/version`，「检查更新」调 `GET /api/update/check`：有新版本且 `in_app` 时显示「更新到 X」，
   点一次调 `POST /api/update/start`，之后每 500 毫秒轮询 `GET /api/update/status` 显示下载进度条与各步文字，失败时显示原因与「去发布页」；
   不能应用内更新时只给「去发布页」（`POST /api/browser/open`）。打开面板时若已有更新在进行或已结束（例如托盘开始的），直接显示其进度。

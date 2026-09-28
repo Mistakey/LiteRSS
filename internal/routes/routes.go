@@ -57,6 +57,7 @@ func Table(d Deps) []Route {
 
 		{Method: http.MethodGet, Path: "/api/settings", Handler: GetSettings(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/update", Mutates: true, Handler: UpdateSettings(d.Settings)},
+		{Method: http.MethodPost, Path: "/api/settings/secrets/clear", Mutates: true, Handler: ClearSecret(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/freshrss/test", Mutates: true, Handler: TestFreshRSS(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/llm/test", Mutates: true, Handler: TestModel(d.Settings)},
 

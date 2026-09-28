@@ -213,9 +213,11 @@ export const api = {
   },
 
   settings: () => getJSON<SettingsView>('/api/settings'),
-  /** 只写给出的键；回写整份对象会用空串清掉已存凭据。 */
+  /** 只写给出的键；凭据给空串会被拒收，清除凭据用 clearSecret。 */
   updateSettings: (changes: Partial<SettingsData>) =>
     postJSON<SettingsView>('/api/settings/update', changes),
+  clearSecret: (key: keyof SettingsData) =>
+    postJSON<SettingsView>('/api/settings/secrets/clear', { key }),
   /** 省略的字段后端取已存值，所以没改的凭据不传。 */
   testFreshRSS: (form: Partial<SettingsData>) =>
     postJSON<ConnectionTest>('/api/settings/freshrss/test', form),

@@ -90,17 +90,90 @@ describe('设置面板', () => {
     w.unmount();
   });
 
-  it('已存凭据显示占位；填新值提交新值，点清除提交空串', async () => {
-    be.settings.baidu_secret_key = 'old-key';
+  function secret(w: Awaited<ReturnType<typeof mounted>>, key: string) {
+    return w.find(`[data-secret=${key}]`);
+  }
+  const buttons = (el: ReturnType<typeof secret>) => el.findAll('button').map((b) => b.text());
+  function clears() {
+    return be.callsTo('POST', '/api/settings/secrets/clear').map((c) => c.body);
+  }
+
+  it('已保存的密钥显示为不可编辑的掩码，带「修改」「清除」；未保存的是普通空输入框', async () => {
     const w = await mounted();
-    const pass = w.find('[name=freshrss_api_password]');
-    expect(pass.attributes('placeholder')).toBe('已保存，留空不改');
-    expect((pass.element as HTMLInputElement).value).toBe('');
-    await pass.setValue('new-pass');
-    await w.find('[data-group=translation] .link').trigger('click');
+    const pass = secret(w, 'freshrss_api_password');
+    const masked = pass.find('input').element as HTMLInputElement;
+    expect(masked.readOnly).toBe(true);
+    expect(masked.value).toBe('••••••••');
+    expect(buttons(pass)).toEqual(['修改', '清除']);
+
+    const key = secret(w, 'llm_api_key');
+    const input = key.find('input').element as HTMLInputElement;
+    expect(input.readOnly).toBe(false);
+    expect(input.value).toBe('');
+    expect(buttons(key)).toEqual([]);
+    w.unmount();
+  });
+
+  it('修改：变成空的输入框，保存时写入新值', async () => {
+    const w = await mounted();
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    const input = secret(w, 'freshrss_api_password').find('input');
+    expect((input.element as HTMLInputElement).readOnly).toBe(false);
+    expect((input.element as HTMLInputElement).value).toBe('');
+    expect(buttons(secret(w, 'freshrss_api_password'))).toEqual(['取消']);
+    await input.setValue('new-pass');
     await w.find('form').trigger('submit');
     await settle();
-    expect(updates()).toEqual([{ freshrss_api_password: 'new-pass', baidu_secret_key: '' }]);
+    expect(updates()).toEqual([{ freshrss_api_password: 'new-pass' }]);
+    expect(be.settings.freshrss_api_password).toBe('new-pass');
+    w.unmount();
+  });
+
+  it('修改后取消：恢复已保存的掩码，保存时不动原值', async () => {
+    const w = await mounted();
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    await secret(w, 'freshrss_api_password').find('input').setValue('typo');
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    expect(
+      (secret(w, 'freshrss_api_password').find('input').element as HTMLInputElement).value
+    ).toBe('••••••••');
+    expect(w.find('button[type=submit]').attributes('disabled')).toBeDefined();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([{ freshrss_username: 'you' }]);
+    expect(be.settings.freshrss_api_password).toBe('stored-pass');
+    w.unmount();
+  });
+
+  it('清除：可以撤销，保存时显式清除，不靠空串', async () => {
+    be.settings.baidu_secret_key = 'old-key';
+    const w = await mounted();
+    const baidu = () => secret(w, 'baidu_secret_key');
+    await baidu().findAll('button')[1].trigger('click');
+    expect(baidu().text()).toContain('保存后清除');
+    expect(buttons(baidu())).toEqual(['撤销']);
+    await baidu().find('button').trigger('click');
+    expect(buttons(baidu())).toEqual(['修改', '清除']);
+    expect(w.find('button[type=submit]').attributes('disabled')).toBeDefined();
+
+    await baidu().findAll('button')[1].trigger('click');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([]);
+    expect(clears()).toEqual([{ key: 'baidu_secret_key' }]);
+    expect(be.settings.baidu_secret_key).toBe('');
+    expect(w.emitted('close')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('未保存的密钥填了就提交', async () => {
+    const w = await mounted();
+    await secret(w, 'llm_api_key').find('input').setValue('sk-1');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([{ llm_api_key: 'sk-1' }]);
+    expect(clears()).toEqual([]);
     w.unmount();
   });
 

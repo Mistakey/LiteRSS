@@ -1,6 +1,7 @@
 /**
  * 设置面板的表单（spec D10）：载入一份设置作为草稿，保存时只提交清单内改过的键。
- * 凭据从不回显：草稿里凭据为空表示不改，「清除」才提交空串；测试连接同样只传填了或清除了的凭据。
+ * 凭据从不回显：已保存的显示为掩码，「修改」后填的值才提交，「清除」保存时经 clearSecret 删除（可撤销）；
+ * 测试连接同样只传填了或清除了的凭据。
  */
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, shallowRef } from 'vue';
@@ -12,7 +13,14 @@ type Key = keyof SettingsData;
 /** 面板能写的键；生成的默认值只含 schema 里非内部的键。 */
 export const SETTING_KEYS = Object.keys(settingsDefaults) as Key[];
 
-export const SECRET_KEYS: readonly Key[] = [
+export type SecretKey =
+  | 'freshrss_api_password'
+  | 'llm_api_key'
+  | 'baidu_secret_key'
+  | 'proxy_username'
+  | 'proxy_password';
+
+export const SECRET_KEYS: readonly SecretKey[] = [
   'freshrss_api_password',
   'llm_api_key',
   'baidu_secret_key',
@@ -29,11 +37,14 @@ const MODEL_FORM: readonly Key[] = ['llm_endpoint', 'llm_model', 'llm_api_key'];
 
 export type TestName = 'freshrss' | 'model';
 
+/** saved：已保存，显示掩码；editing：已保存、正在填新值；cleared：保存时清除；empty：没保存过。 */
+export type SecretState = 'saved' | 'editing' | 'cleared' | 'empty';
+
 /** 测试进行中为 running，结束后是后端的结果。 */
 export type TestState = { running: true } | ({ running: false } & ConnectionTest);
 
-function isSecret(key: Key) {
-  return SECRET_KEYS.includes(key);
+function isSecret(key: Key): key is SecretKey {
+  return (SECRET_KEYS as readonly Key[]).includes(key);
 }
 
 function errorText(err: unknown) {
@@ -49,6 +60,8 @@ export const useSettings = defineStore('settings', () => {
   const draft = reactive<SettingsData>({ ...settingsDefaults });
   /** 用户点了「清除」的已存凭据。 */
   const cleared = reactive(new Set<Key>());
+  /** 用户点了「修改」的已存凭据。 */
+  const editing = reactive(new Set<Key>());
   const loadError = ref('');
   const saving = ref(false);
   const saveError = ref('');
@@ -58,6 +71,7 @@ export const useSettings = defineStore('settings', () => {
     loaded.value = view;
     Object.assign(draft, view.settings);
     cleared.clear();
+    editing.clear();
   }
 
   async function load() {
@@ -73,22 +87,42 @@ export const useSettings = defineStore('settings', () => {
     }
   }
 
-  function saved(key: Key) {
-    return !cleared.has(key) && !!loaded.value?.saved_secrets.includes(key);
+  function secretState(key: Key): SecretState {
+    if (cleared.has(key)) return 'cleared';
+    if (!loaded.value?.saved_secrets.includes(key)) return 'empty';
+    return editing.has(key) ? 'editing' : 'saved';
   }
 
+  function setDraft(key: Key, value: string) {
+    (draft as Record<Key, unknown>)[key] = value;
+  }
+
+  /** 修改已保存的凭据：给一个空输入框，取消即恢复。 */
+  function editSecret(key: Key) {
+    editing.add(key);
+    setDraft(key, '');
+  }
+
+  function cancelEdit(key: Key) {
+    editing.delete(key);
+    setDraft(key, '');
+  }
+
+  /** 清除已保存的凭据：保存时才删，之前可以撤销。 */
   function clearSecret(key: Key) {
+    editing.delete(key);
     cleared.add(key);
-    (draft as Record<Key, unknown>)[key] = '';
+    setDraft(key, '');
   }
 
-  /** 一个键的待提交值；undefined 表示不改。 */
+  function undoClear(key: Key) {
+    cleared.delete(key);
+  }
+
+  /** 一个键的待提交值；undefined 表示不改。凭据只提交填了的值，清除另走 clearSecret。 */
   function pending(key: Key): SettingsData[Key] | undefined {
     const value = draft[key];
-    if (isSecret(key)) {
-      if (value !== '') return value;
-      return cleared.has(key) ? '' : undefined;
-    }
+    if (isSecret(key)) return value !== '' && !cleared.has(key) ? value : undefined;
     return value === loaded.value?.settings[key] ? undefined : value;
   }
 
@@ -106,7 +140,7 @@ export const useSettings = defineStore('settings', () => {
       Number.isInteger(draft.freshrss_auto_sync_interval) && draft.freshrss_auto_sync_interval >= 1
   );
 
-  const dirty = computed(() => Object.keys(changes.value).length > 0);
+  const dirty = computed(() => Object.keys(changes.value).length > 0 || cleared.size > 0);
 
   /** 保存改过的键；成功返回 true，失败把原因放进 saveError。 */
   async function save() {
@@ -118,7 +152,11 @@ export const useSettings = defineStore('settings', () => {
     saving.value = true;
     saveError.value = '';
     try {
-      reset(await api.updateSettings(changes.value));
+      // 先写改动再清除：改动被拒收时什么也不删。两步都幂等，失败后再点保存会重做。
+      let view: SettingsView | null = null;
+      if (Object.keys(changes.value).length) view = await api.updateSettings(changes.value);
+      for (const key of [...cleared]) view = await api.clearSecret(key);
+      if (view) reset(view);
       return true;
     } catch (err) {
       saveError.value = errorText(err);
@@ -133,7 +171,7 @@ export const useSettings = defineStore('settings', () => {
     const form: Partial<Record<Key, SettingsData[Key]>> = {};
     for (const key of name === 'freshrss' ? FRESHRSS_FORM : MODEL_FORM) {
       if (isSecret(key)) {
-        const v = pending(key);
+        const v = cleared.has(key) ? '' : pending(key);
         if (v !== undefined) form[key] = v;
       } else {
         form[key] = draft[key];
@@ -161,8 +199,11 @@ export const useSettings = defineStore('settings', () => {
     dirty,
     intervalValid,
     load,
-    saved,
+    secretState,
+    editSecret,
+    cancelEdit,
     clearSecret,
+    undoClear,
     save,
     test,
   };

@@ -198,7 +198,16 @@ export class FakeBackend {
       const changes = body as Record<string, unknown>;
       const unknown = Object.keys(changes).filter((k) => !(k in settingsDefaults));
       if (unknown.length) return new Response(`unknown settings: ${unknown}`, { status: 400 });
+      const emptied = SECRETS.filter((k) => changes[k] === '');
+      if (emptied.length) return new Response(`clear ${emptied} explicitly`, { status: 400 });
       Object.assign(this.settings, changes);
+      return json(this.settingsView());
+    }
+    if (route === 'POST /api/settings/secrets/clear') {
+      const { key } = body as { key: keyof SettingsData };
+      if (!SECRETS.includes(key))
+        return new Response(`${key} is not a credential`, { status: 400 });
+      (this.settings as Record<string, unknown>)[key] = '';
       return json(this.settingsView());
     }
     const test = url.pathname.match(/^\/api\/settings\/(freshrss|llm)\/test$/);
