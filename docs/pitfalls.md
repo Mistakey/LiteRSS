@@ -23,6 +23,7 @@
 | [31](#pitfall-31) | 长轮询不能有更短的 `WriteTimeout`，`Shutdown` 不会唤醒它 |
 | [32](#pitfall-32) | 旧版互斥量名由已安装的旧二进制决定 |
 | [33](#pitfall-33) | 最小化窗口的位置是占位值 -32000，按缩放会变成 -21333 等 |
+| [34](#pitfall-34) | 本机 npm 认为同步的 lockfile，CI 的 `npm ci` 可能拒收 |
 
 ## Pitfall 8
 
@@ -131,3 +132,9 @@ WebView2（`msedgewebview2.exe`）未被过滤。不要为了取证去改用户�
 旧版在最小化状态退出时把这个占位位置当窗口位置存进了 `window_x` / `window_y`（用户真实库就是 -21333），下次启动窗口落在屏幕外。
 所以只比较 -32000 不够。`settings.MinimizedWindowPos` 把任一坐标 ≤ -10000 视为占位值：真实的多显示器排布到不了这么远（两块 4K 屏左侧也只有 -3840），
 而 -32000 要到 320% 缩放才越过这条线。旧库导入遇到它时 x、y 两项都丢，让壳居中显示；壳集成保存与恢复窗口位置时也不保存、不采用它（spec D4）。
+
+## Pitfall 34
+
+**`npm ci` 用的是 CI 上 Node 24 自带的 npm，它比本机的 npm 11.6.2 新，对 lockfile 更严**：可选的 wasm 绑定（`@napi-rs/wasm-runtime`）的 peer 依赖
+`@emnapi/core`、`@emnapi/runtime` 在旧 npm 生成的 lockfile 里没有顶层条目，本机 `npm ci` 照过，CI 报 `EUSAGE` 与 `Missing: @emnapi/core@… from lock file`，
+之后的 `vite` 找不到。改依赖后用 `npx -y npm@11.20.0 install --package-lock-only`（或更新的 npm 11）重生成 lockfile 再提交。2026-09-28 新仓库首次 CI 实测。
