@@ -32,22 +32,6 @@ updates:
       prefix: "chore(npm-deps:frontend)"
       include: "scope"
 
-  # NPM dependencies for website
-  - package-ecosystem: "npm"
-    directory: "/website"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    groups:
-      website-dependencies:
-        patterns:
-          - "*"
-    labels:
-      - "🛠️dependencies"
-    commit-message:
-      prefix: "chore(npm-deps:website)"
-      include: "scope"
-
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
