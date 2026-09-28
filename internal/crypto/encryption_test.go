@@ -71,7 +71,6 @@ func TestDecryptInvalidInput(t *testing.T) {
 		{"plain text", "not-encrypted"},
 		{"marker with bad base64", marker + "not-valid-base64!@#$"},
 		{"marker with garbage blob", marker + "SGVsbG8gV29ybGQh"},
-		{"legacy value", legacyMarker + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 	}
 
 	for _, tt := range tests {
@@ -83,32 +82,31 @@ func TestDecryptInvalidInput(t *testing.T) {
 	}
 }
 
-func TestDecryptLegacyRoundTrip(t *testing.T) {
-	encrypted, err := encryptLegacy("sk-legacy-secret")
+func TestMachineKeyRoundTrip(t *testing.T) {
+	encrypted, err := encryptMachineKey("sk-machine-secret")
 	if err != nil {
-		t.Fatalf("encryptLegacy() error = %v", err)
+		t.Fatalf("encryptMachineKey() error = %v", err)
 	}
-	if !strings.HasPrefix(encrypted, legacyMarker) {
-		t.Fatalf("legacy ciphertext %q lacks marker %q", encrypted, legacyMarker)
+	if !strings.HasPrefix(encrypted, machineKeyMarker) {
+		t.Fatalf("ciphertext %q lacks marker %q", encrypted, machineKeyMarker)
 	}
-	decrypted, err := DecryptLegacy(encrypted)
+	decrypted, err := decryptMachineKey(strings.TrimPrefix(encrypted, machineKeyMarker))
 	if err != nil {
-		t.Fatalf("DecryptLegacy() error = %v", err)
+		t.Fatalf("decryptMachineKey() error = %v", err)
 	}
-	if decrypted != "sk-legacy-secret" {
-		t.Errorf("DecryptLegacy() = %q", decrypted)
+	if decrypted != "sk-machine-secret" {
+		t.Errorf("decryptMachineKey() = %q", decrypted)
 	}
 }
 
-func TestDecryptLegacyInvalidInput(t *testing.T) {
+func TestMachineKeyInvalidInput(t *testing.T) {
 	for _, input := range []string{
-		"no-marker",
-		legacyMarker + "not-valid-base64!@#$",
-		legacyMarker + "YWJj",
-		legacyMarker + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"not-valid-base64!@#$",
+		"YWJj",
+		"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	} {
-		if _, err := DecryptLegacy(input); err == nil {
-			t.Errorf("DecryptLegacy(%q) succeeded, want error", input)
+		if _, err := decryptMachineKey(input); !errors.Is(err, ErrDecryptionFailed) {
+			t.Errorf("decryptMachineKey(%q) error = %v, want ErrDecryptionFailed", input, err)
 		}
 	}
 }

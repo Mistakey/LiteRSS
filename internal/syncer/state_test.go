@@ -113,27 +113,6 @@ func TestIntentWritesAndPushesUpdatePending(t *testing.T) {
 	}
 }
 
-func TestLegacyRunningIsReportedAndDoesNotStopTheCycle(t *testing.T) {
-	e := newEnv(t, nil)
-	probes := 0
-	e.svc.LegacyRunning = func() bool { probes++; return true }
-	e.fake.AddFeeds(freshrsstest.Feed{ID: 1, Title: "One"})
-	e.fake.AddItems(freshrsstest.Item{ID: e.now - day, FeedID: 1, URL: "https://x/a"})
-
-	if res := e.cycle(t); res.Added != 1 {
-		t.Fatalf("the cycle added %d, want 1", res.Added)
-	}
-	if st := e.svc.State(); !st.LegacyRunning || probes != 1 {
-		t.Fatalf("status %+v after %d probes", st, probes)
-	}
-
-	e.svc.LegacyRunning = func() bool { return false }
-	e.cycle(t)
-	if st := e.svc.State(); st.LegacyRunning {
-		t.Fatalf("legacy gone, status still says running: %+v", st)
-	}
-}
-
 func TestFailedCycleKeepsLastSyncAndReportsTheError(t *testing.T) {
 	e := newEnv(t, nil)
 	e.cycle(t)

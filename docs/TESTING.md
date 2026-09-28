@@ -38,17 +38,6 @@ curl --noproxy "*" -d "Email=dev&Passwd=dev" http://127.0.0.1:1240/api/greader.p
 `POST /_fake/add?feed=1&n=3`（抓到新条目）、`/_fake/read?i=<id>`（别处读掉，`&read=0` 为改回未读）、`/_fake/unsubscribe?feed=1`、
 `/_fake/expire` 在两次同步之间扮演别的设备与服务端。数据只在内存里，重启即重新生成。
 
-### 合成旧库
-
-旧库导入（`internal/legacyimport`）的测试只用合成旧库，agent 不读用户真实的 `%APPDATA%\MrRSS\rss.db`。`legacyimport_test.go` 的 `legacySchema`
-按 `legacy-final` 的建表语句与 `runMigrations` 加的列逐字建库（`git show legacy-final:internal/database/schema.go`、`migrations.go`、
-`freshrss_sync_db.go`），`fixture` 按真实库实测的各类行播种：无条目 ID、无 stream ID、同 URL、等于原标题的译文、各种 `published_at` 写法、
-推送队列的已同步 / 已放弃 / 星标 / 先读后未读、白名单外设置、最小化占位坐标、多个 AI profile。
-
-- 凭据密文用测试里逐字抄的 `legacy-final` `crypto.Encrypt`（`legacyEncrypt`）生成，钉住 `MrRSS-v1:` 格式；传别的机器 ID 就得到本机解不开的密文。
-- 旧库文件在导入前后按字节比较；导入先于第一个同步周期由 `Importer.Gate` 对假 FreshRSS 跑真实的 `RunCycle` 验证。
-- 旧库结构有新发现时，先改 `legacySchema` 与 `fixture`，再改导入器。
-
 ### API 路由
 
 - `internal/routes/routes_test.go` 的 `TestRouteTable` 遍历 `routes.Table`：方法只能是 GET / POST / PUT / DELETE、标了 `Mutates` 的路由恰好是非 GET 的那些、
@@ -176,7 +165,6 @@ Frontend coverage is not currently a configured package script; add a matching c
    通过的样子：每个请求 200 且带 spec D16 的 CSP；加载期控制台为空；`external` 为空；探针三项都报违规。截图用 Read 查看，对照 spec D15。
    需要数据时先起 `tools/fake-freshrss`（见「假 FreshRSS」），再用 `POST /api/settings/update` 写入 `freshrss_server_url=http://127.0.0.1:1240`、`dev` / `dev`，
    写入后自动同步一轮。点击、右键等交互用 CDP 的 `Input.dispatchMouseEvent` 在同一个页签里驱动后再 `Page.captureScreenshot`；取证脚本本身只做加载与截图。
-   用户的旧版 MrRSS 在运行时，同步状态带 `legacy_running`，侧栏底部会出现旧版提示，这是正确行为。
    `tools/fake-freshrss` 生成的条目链接都是 `*.example.com`，抓全文只会得到连不上。要取证详情的抓取成功 / 失败时，在仓库里临时写一个 main 包（取证后删掉）：
    用 `freshrsstest.New` + `AddFeeds`/`AddItems` 放几条短正文的条目，链接指向同一程序在另一个回环端口上起的页面（一页正常文章、其余回 403），
    并把开发实例的 `proxy_mode` 设为 `direct`。正文图片用 `data:image/svg+xml` 生成：清洗器会删掉指向回环主机的图片。

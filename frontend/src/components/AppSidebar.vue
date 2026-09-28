@@ -128,9 +128,6 @@ const menuCaption = computed(() => {
       </div>
     </nav>
 
-    <div v-if="sync.state?.legacy_running" class="legacy" role="alert">
-      <Icon name="warn" />旧版 MrRSS 正在运行，会把已读改回未读，请退出
-    </div>
     <div class="sb-foot">
       <button
         class="sync-link"
@@ -279,21 +276,6 @@ const menuCaption = computed(() => {
   height: 1px;
   background: var(--border);
   margin: 6px 8px;
-}
-
-.legacy {
-  flex: none;
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin: 0 8px 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  color: var(--warn-text);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .sb-foot {

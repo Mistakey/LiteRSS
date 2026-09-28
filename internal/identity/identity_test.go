@@ -81,9 +81,6 @@ func TestProductionValues(t *testing.T) {
 	if Production.BrowserChannel {
 		t.Error("production identity must not serve the browser forensics channel")
 	}
-	if !Production.SearchesLegacyLibrary || Development.SearchesLegacyLibrary {
-		t.Error("only the production identity may look for the user's legacy MrRSS library")
-	}
 	if !Production.InstallsUpdates || Development.InstallsUpdates {
 		t.Error("only the production identity may start a downloaded installer (spec D20)")
 	}

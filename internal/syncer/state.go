@@ -20,9 +20,6 @@ type State struct {
 	LastSyncAt int64 `json:"last_sync_at"`
 	// Error is why the last cycle failed, empty after a success.
 	Error string `json:"error"`
-	// LegacyRunning says the last cycle found the legacy MrRSS running, which
-	// turns read articles back to unread (spec D18).
-	LegacyRunning bool `json:"legacy_running"`
 }
 
 // State returns the current sync status.
@@ -51,13 +48,6 @@ func (s *Service) WaitState(ctx context.Context, since uint64) State {
 	case <-s.ctx.Done():
 	}
 	return s.State()
-}
-
-// NoteLegacyRunning puts the legacy MrRSS into the status outside a cycle:
-// the legacy import holds cycles back while it runs (spec D12), and the next
-// cycle probes again.
-func (s *Service) NoteLegacyRunning() {
-	s.updateState(func(st *State) { st.LegacyRunning = true })
 }
 
 // loadState fills the status from the library once, before its first use.

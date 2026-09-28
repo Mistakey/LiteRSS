@@ -8,7 +8,7 @@
 旧的同步、数据库访问、HTTP handler 与路由、AI profile、AI 翻译、内容缓存和整个前端已经删除。
 主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
 
-- 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、首次启动时导入旧 MrRSS 库、启动同步调度，并在回环地址上启动 desktopapi。
+- 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、启动同步调度，并在回环地址上启动 desktopapi。
 - 前端：Vue 3 + TypeScript + Vite + Vitest + Pinia，三栏与设置面板都已接上 API（见下「前端」）。
 - 通信：前端只通过相对路径 `/api/...` 访问后端，不依赖 Wails 绑定，所以同一份构建能在 Wails 窗口和浏览器取证通道里运行。
 
@@ -22,7 +22,7 @@
   数据目录下的 `webview2\`，不落到默认的 `%APPDATA%\<exe 文件名>`。
 - 日志写入数据目录下的 `logs\debug.log`；启动时把上一次的日志移到 `debug.log.1`，只保留一份。
 - 本地库是数据目录下的 `literss.db`，打不开时退出。同步服务的 FreshRSS 账号在每个周期开始时从设置读取，三项有一项为空时周期以「FreshRSS 未配置」失败；
-  同一配置共用一个 `freshrss.Clients` 客户端。调度器的每一轮先经 `legacyimport.Importer.Gate`：旧库导入落定之前不跑周期（见下「旧库导入」）。退出时先停调度并等在跑的周期结束，再 `syncer.Service.Close`（唤醒长轮询），最后关 desktopapi 与库（pitfall 31）。
+  同一配置共用一个 `freshrss.Clients` 客户端。退出时先停调度并等在跑的周期结束，再 `syncer.Service.Close`（唤醒长轮询），最后关 desktopapi 与库（pitfall 31）。
 - `internal/webui.Site` 把 `/api/` 前缀交给 API mux（`routes.Handler`，挂 `routes.Table` 的全部路由），其余交给 `frontend/dist` 的静态 handler；
   Wails 资源通道经 `webui.WailsMiddleware` 挂它，`/wails` 前缀留给 Wails 运行时。
 - CSP：静态 handler（`webui.Static`）是唯一下发 `Content-Security-Policy` 响应头的地方，两条通道因此总是同一份策略（spec D16）；
@@ -71,15 +71,15 @@
 - 版本化迁移：`PRAGMA user_version` 是库的 schema 版本，新库从 1 起步。`migrations[i]` 把版本从 i 升到 i+1，每步与版本号在同一个事务里提交，
   失败时 schema 与版本号都不动；库版本高于本构建认识的版本时拒绝打开。
 - 列级权威由表表达（spec D6、D9）：
-  - FreshRSS 所有、只由同步拉取写入（例外：旧库一次性导入，spec D12；推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
+  - FreshRSS 所有、只由同步拉取写入（例外：推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
     `articles` 的全部列——条目 ID（十进制，主键）、stream ID、URL、标题、图片、`published_at`、`server_read` 镜像。
   - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）是本地数据，同步从不写。
     正文与全文分表，互不覆盖。
   - 用户意图：`pending_read`（每条目一行）与 `pending_mark_all`；显示状态 = 有意图取意图，否则取 `server_read`。
-  - `meta` 是键值表，存上次成功同步时间、旧库导入状态这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
+  - `meta` 是键值表，存上次成功同步时间这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
 - 以 `item_id` 为键的正文、全文、译文、摘要、`pending_read` 都 `ON DELETE CASCADE` 到 `articles`，删文章即连带删除。
   因此更新这些行只能 `ON CONFLICT DO UPDATE`，`INSERT OR REPLACE` 会先删行再级联清掉子表（pitfall 26）。
-  `articles.stream_id` 不设外键：旧库导入的文章先于第一次同步重建 `feeds` 落库。
+  `articles.stream_id` 不设外键。
 - 时间：条目 ID 就是 FreshRSS 的抓取时间（微秒，`database.FetchedAt`），不另存抓取时间列。`published_at` 是 Unix 秒，只用于显示与排序，
   入库前经 `database.NormalizePublishedAt`：缺失、≤ 0、解析失败或晚于抓取时间 1 天以上时取抓取时间，其余原样保留。
 - `title_translations` 有行即「已判定」，没有行是唯一的未判定状态，空译文被 `CHECK` 拒收（pitfall 12）。
@@ -109,17 +109,14 @@
   `Trigger` 给立即同步、托盘与从睡眠恢复用，`TriggerOnFocus` 给窗口获得焦点用，距上一轮开始不足 `FocusGap`（1 分钟）时跳过。
   周期只在 `Run` 的 goroutine 上串行跑，跑的时候来的多次触发并成跑完后的一轮；任何一轮都重新计间隔。触发来源见上「壳」。
 - 同步状态（`state.go`，spec D14）：`State` 含 `rev`、运行中、上一轮新增条目数、待推送数（`pending_read` 与 `pending_mark_all` 行数之和）、
-  上次成功时间、错误、`legacy_running`。任何字段变化 `rev` 加一并唤醒等待者；`rev` 从 1 起，所以首次请求 `since=0` 立即返回。
-  变化点：周期开始（运行中、旧版探测结果）、周期结束（新增数，失败的周期也写入它补进的条目数；待推送数；成功时清错误并记时间，失败只记错误）、
+  上次成功时间、错误。任何字段变化 `rev` 加一并唤醒等待者；`rev` 从 1 起，所以首次请求 `since=0` 立即返回。
+  变化点：周期开始（运行中）、周期结束（新增数，失败的周期也写入它补进的条目数；待推送数；成功时清错误并记时间，失败只记错误）、
   意图写入后与定时推送后（只有待推送数变了才加 `rev`；计数与发布在同一把锁里，慢的计数不会盖掉新的）。
   `WaitState(ctx, since)` 在 `since` 与当前 `rev` 不同时立即返回（包括客户端带着上次运行的 `rev`），否则等变化、`ctx` 结束或 `Close`。
-- 旧版探测（spec D18）：周期开始时调 `Service.LegacyRunning`（`main.go` 接 `legacyprobe.Running`），结果只写进状态，不暂停同步。
-  `internal/legacyprobe` 在 Windows 上以 `SYNCHRONIZE` 只读打开旧版 Wails 单实例互斥量 `wails-app-com.mrrss.app-sim`，
-  打得开或拒绝访问都算在运行（pitfall 32）；其他平台恒为 false。
-- 一个周期依次为：探测旧版 → 推送意图 → 拉取 → 清理。推送失败不拦拉取（拉取不碰意图），但周期以失败返回、不记 `last_sync_at`，并按退避安排重试。拉取与清理：
+- 一个周期依次为：推送意图 → 拉取 → 清理。推送失败不拦拉取（拉取不碰意图），但周期以失败返回、不记 `last_sync_at`，并按退避安排重试。拉取与清理：
   1. `subscription/list` 与 `tag/list`：`feeds`、`tags` 以 upsert 只写服务端所有的列，`feed_tags` 按订阅重写；随后删掉服务端已没有的源与标签、
      这些源的文章（连带正文、全文、译文、摘要、`pending_read`）以及指向已消失流的 `pending_mark_all`。
-     返回 0 个订阅而本地有源或有文章（旧库导入只带文章）时视为服务端异常，整步不写并记日志。
+     返回 0 个订阅而本地有源或有文章时视为服务端异常，整步不写并记日志。
   2. 未读 ID 集：`reading-list` 排除 `read`，`n` 一次取足（10 万）；超量才续页，接受 pitfall 28 的边角（被丢的一条本周期记为已读，下周期纠正）。
   3. 高水位扫描：从最新往旧读 `reading-list` 的 ID（同样一次取足），到「本地最大条目 ID − 10 分钟」或「现在 − 90 天」为止。
   4. 未读集与扫描结果里本地没有的条目，按旧到新每批 100 条经 `stream/items/contents` 补齐，不论已读与否；写 `articles` 与 `article_contents`，
@@ -127,25 +124,6 @@
   5. `server_read` 镜像：在未读集里为 0，其余本地文章为 1。拉取从不写服务端，也不碰意图表。
   6. 清理：抓取时间早于 90 天（`syncer.Retention`）、`server_read = 1` 且没有 `pending_read` 行的文章连带删除，有删除时排空 `incremental_vacuum`。
 - 周期成功后在 `meta` 的 `last_sync_at` 记 Unix 秒。`RunCycle` 返回新增、因取消订阅删除、因保留期清理的文章数。
-
-## 旧库导入（`internal/legacyimport`，spec D12）
-
-- 一次性、只读：`meta` 的 `legacy_import` 有记录（`done` / `skipped` / `failed`，JSON 形式的 `legacyimport.Report`：来源、时间、各类计数、
-  要重填的凭据键）就再也不找旧库。没有记录时：本地已有文章、订阅或 `last_sync_at` 记 `skipped`（只填一个从没同步过的库）；
-  候选路径都不存在记 `skipped`；找到旧库而旧版在运行（`legacyprobe.Running`）时推迟，什么也不写；否则导入，之后任何失败记 `failed` 与原因。
-- 候选路径（`legacyimport.Candidates`）：环境变量 `LITERSS_LEGACY_DB` 指定的文件；正式身份（`identity.SearchesLegacyLibrary`）再查
-  用户配置目录下的 `MrRSS\rss.db`（Windows 与 macOS），以及便携版 exe 旁的 `data\rss.db`。开发构建只认环境变量，碰不到用户的旧库。
-- 读取：以 `file:…?mode=ro` 的 URI 只读打开，按表结构识别（`articles`、`settings`、`article_contents`、`feeds` 与两列 FreshRSS ID），
-  `VACUUM INTO` 到数据目录下的临时快照，再从快照读，导完删除。旧库处于 WAL 时只读连接仍可能在旧目录留下空的 `-wal` / `-shm`，主库字节不变。
-- 写入在新库的一个事务里，连同 `done` 记录一起提交：有条目 ID 且所属订阅有 stream ID 的文章（其余丢弃并计数；`published_at` 解析 Go 时间串与
-  SQLite 日期串后照常 `NormalizePublishedAt`）、RSS 正文与全文分表、非空译文原样（含等于原标题的「已判定」值）、摘要；
-  未同步且未被旧版放弃的队列行按（条目，read）取最后一条转 `pending_read`，`seq` 按这些行的先后从 `intent_seq` 续取，星标丢弃；
-  设置按 D10 白名单，凭据带 `MrRSS-v1:` 时经 `crypto.DecryptLegacy` 解开（解不开只丢该项、进 `Refill`），没有标记的是旧版未读过的明文，
-  窗口坐标为最小化占位值时两项都丢（pitfall 33），新 schema 不接受的值逐项丢弃，经 `settings.Store.UpdateTx` 重新加密写入；
-  模型配置按旧解析链（`ai_summary_profile_id` → `is_default` → 最小 id）从 `ai_profiles` 取一条写 `llm_*`。
-- 顺序：`Gate` 包住调度器的周期函数，每一轮先 `Run`：推迟时调 `syncer.Service.NoteLegacyRunning`（状态里 `legacy_running` 为真）并跳过这一轮，
-  下一次间隔或触发再试；落定（导入、跳过或失败都算）后才跑周期，所以第一个周期先推送导入的意图再拉取。
-  导入报告目前只在 `meta` 与日志里，界面提示由 API 与前端的步骤接上。
 
 ## API 路由（`internal/routes`，spec D13）
 
@@ -162,7 +140,7 @@
     `view` 缺省 `unread`（显示为未读），`stream` 缺省全部订阅，也可以是 `feed/<n>` 或标签。成员由前端持有，之后已读的只变灰，同步来的新条目只经重新取快照进入列表；
     「此篇及以上 / 以下」从这份完整列表取 ID，所以覆盖界面还没加载的部分。`newest` 是成员里最大的条目 ID（最新抓取时间），即该视图全部已读的 `ts`（spec D7），空视图为 0。
   - `GET /api/articles/cards?ids=<id>,...`：按给定顺序返回卡片（每次至多 `library.MaxCards` 200 个），已不在库里的 ID 跳过（保留期清理）。
-    卡片含源标题（旧库导入、首次同步前为空）、URL、标题、标题译文（空为未判定，等于原标题为「已判定中文」）、缩略图、`published_at`、显示状态，
+    卡片含源标题（源已不在 `feeds` 时为空）、URL、标题、标题译文（空为未判定，等于原标题为「已判定中文」）、缩略图、`published_at`、显示状态，
     以及后端从 RSS 正文抽的纯文本摘录 `excerpt`（`library.Excerpt`：去标签、解实体、跳过脚本样式等不可见元素、合并空白、最多 200 字符），前端用插值渲染。
   - `GET /api/articles/{id}/content`：`{content}`，RSS 正文原样（不可信 HTML，由前端清洗，spec D16）；没有正文为空串。
   - `GET /api/unread-counts`：`{total, feeds, tags}`，按显示状态计未读，同 URL 组在每个范围内计一次（URL 为空的条目各计一次）；没有未读的源与标签不出现。
@@ -209,11 +187,11 @@
 - 设置清单是 `internal/config/settings_schema.json`（spec D10），`tools/settings-generator` 由它生成默认值、每键元数据（`config.Lookup`）
   与前端类型；用法见 [Settings](SETTINGS.md)。
 - `internal/settings.Store` 读写 `settings` 表（`main.go` 的同步账号与间隔读它）：写入时 schema 以外的键整批拒收、值按类型校验；读取时忽略 schema 以外的存值并记日志。
-  `UpdateTx` 是在调用方事务里的同一写入（旧库导入用），`settings.Check` 单独判一个键值能否写入。
+  `settings.Check` 单独判一个键值能否写入。
 - `settings.Panel` 是设置面板经 API 做的事：按 schema 类型收发值、凭据不回显、拒收内部键与装不上的代理（`ErrInvalid`），写后装代理或触发同步，写 `startup_on_boot` 前先经 `Autostart` 钩子落到系统，以及两个测试连接。
-- `settings.MinimizedWindowPos`：任一坐标 ≤ -10000 即 Windows 最小化占位位置，不保存也不采用（pitfall 33）；旧库导入与壳的窗口位置都用它。
+- `settings.MinimizedWindowPos`：任一坐标 ≤ -10000 即 Windows 最小化占位位置，不保存也不采用（pitfall 33）；壳的窗口位置用它。
 - 凭据（schema 里 `encrypted` 的键）由 `Store` 经 `internal/crypto` 加解密，调用方只见明文。Windows 用 DPAPI（当前用户范围，
-  spec D3），macOS 沿用 MrRSS 的主机派生密钥 AES-GCM；`crypto.DecryptLegacy` 只读旧 MrRSS 格式，留给旧库导入。
+  spec D3），macOS 用主机派生密钥的 AES-GCM（`machinekey.go`）。
 
 ## 前端（`frontend/`）
 
@@ -238,7 +216,7 @@
     「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
 - 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后；源用按 ID 取色的字母徽标，不加载源图标。
-  右键任一节点「全部标为已读」；`legacy_running` 时底部显示「旧版 MrRSS 正在运行，会把已读改回未读，请退出」；同步状态可点，调 `POST /api/sync/run`；齿轮打开设置面板。
+  右键任一节点「全部标为已读」；同步状态可点，调 `POST /api/sync/run`；齿轮打开设置面板。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
 - 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / 失败原因 +「在浏览器打开」）、摘要框、正文；

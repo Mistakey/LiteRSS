@@ -10,7 +10,7 @@ import (
 // table a column lives in (spec D6, D9):
 //
 //   - feeds, tags, feed_tags and every articles column are FreshRSS-owned and
-//     written only by the sync pull (and once by the legacy import, spec D12);
+//     written only by the sync pull;
 //     server_read is a mirror of the server, which a confirmed push also sets
 //     to the value it sent until the next pull.
 //   - article_contents holds the RSS body the pull delivered; fulltext_cache,

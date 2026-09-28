@@ -36,10 +36,6 @@ type Identity struct {
 	// (spec D20). Development builds stop after the checksum and may point
 	// the release check at a fake service instead.
 	InstallsUpdates bool
-	// SearchesLegacyLibrary lets the first start look for the legacy MrRSS
-	// library in its fixed locations (spec D12). Development builds only
-	// import one named by the environment, so they never read the user's.
-	SearchesLegacyLibrary bool
 }
 
 // Production is the identity of installed builds. Its port must differ from
@@ -53,8 +49,6 @@ var Production = Identity{
 	AutostartValueName: "LiteRSS",
 	UpdateRepo:         "Mistakey/LiteRSS",
 	InstallsUpdates:    true,
-
-	SearchesLegacyLibrary: true,
 }
 
 // Development replaces every Production value that could touch a running

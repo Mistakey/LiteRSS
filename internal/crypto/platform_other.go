@@ -2,13 +2,14 @@
 
 package crypto
 
-// marker prefixes the ciphertext off Windows: macOS keeps the MrRSS scheme.
-const marker = legacyMarker
+// marker prefixes the ciphertext off Windows, where the machine-key scheme
+// is used.
+const marker = machineKeyMarker
 
 func encrypt(plaintext string) (string, error) {
-	return encryptLegacy(plaintext)
+	return encryptMachineKey(plaintext)
 }
 
 func decrypt(encoded string) (string, error) {
-	return decryptLegacyPayload(encoded)
+	return decryptMachineKey(encoded)
 }

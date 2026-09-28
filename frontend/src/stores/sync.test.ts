@@ -13,7 +13,6 @@ const base: SyncState = {
   pending: 0,
   last_sync_at: 1000,
   error: '',
-  legacy_running: false,
 };
 
 beforeEach(() => {

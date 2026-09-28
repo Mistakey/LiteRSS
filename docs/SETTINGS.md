@@ -65,6 +65,5 @@ schema 与生成物不同步。改了 schema 之后按 `.forge/config.md` 跑 Go
 `encrypted: true` 的键由 `Store` 写入前用 `crypto.Encrypt` 加密、读出时解密，调用方拿到的总是明文，空值存为空。
 
 - Windows：DPAPI，当前用户范围，密文为 `dpapi:` + base64 的 DPAPI blob；别的用户或别的机器打不开。
-- macOS：沿用 MrRSS 的方案（主机名等派生 PBKDF2 密钥，AES-256-GCM，前缀 `MrRSS-v1:`）。
+- macOS：主机名等派生 PBKDF2 密钥，AES-256-GCM，前缀 `MrRSS-v1:`（沿用最初写入的前缀，已存的值才读得出）。
 - 存值解密失败（库被拷到另一台机器或另一个用户下）时按空值返回并记日志，由用户重填。
-- `crypto.DecryptLegacy` 只读旧 MrRSS 格式，留给旧库导入：解密后再经 `Store` 按当前平台方案重新加密。

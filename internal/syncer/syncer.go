@@ -75,11 +75,6 @@ type Service struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	// LegacyRunning, when set, is asked at the start of every cycle whether
-	// the legacy MrRSS runs; the answer goes into the status and never stops
-	// the cycle (spec D18). Set it before the first cycle.
-	LegacyRunning func() bool
-
 	// stateMu guards state and stateChanged, which is closed and replaced on
 	// every change to wake the long polls waiting on it.
 	stateMu      sync.Mutex
@@ -141,19 +136,14 @@ type Result struct {
 }
 
 // RunCycle runs one sync cycle; a caller arriving while one runs waits for it
-// to finish and then runs its own. It first probes for the legacy MrRSS, then
-// sends intents, so the pull already sees them on the server. A failed push
+// to finish and then runs its own. It first sends intents, so the pull already sees them on the server. A failed push
 // does not hold the pull back, since the pull never touches intents, but it
 // fails the cycle. The status changes as the cycle starts and ends.
 func (s *Service) RunCycle(ctx context.Context) (Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	legacy := s.LegacyRunning != nil && s.LegacyRunning()
-	s.updateState(func(st *State) {
-		st.Running = true
-		st.LegacyRunning = legacy
-	})
+	s.updateState(func(st *State) { st.Running = true })
 	res, syncedAt, err := s.runCycle(ctx)
 	s.updateWithPending(ctx, func(st *State) {
 		st.Running = false

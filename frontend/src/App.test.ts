@@ -70,23 +70,6 @@ describe('侧栏', () => {
     expect(w.find('.snackbar button').text()).toBe('撤销');
     w.unmount();
   });
-
-  it('旧版在运行时显示提示', async () => {
-    be.syncStates = [
-      {
-        rev: 1,
-        running: false,
-        new_items: 0,
-        pending: 0,
-        last_sync_at: 0,
-        error: '',
-        legacy_running: true,
-      },
-    ];
-    const w = await mounted();
-    expect(w.find('.legacy').text()).toBe('旧版 MrRSS 正在运行，会把已读改回未读，请退出');
-    w.unmount();
-  });
 });
 
 describe('列表', () => {

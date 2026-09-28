@@ -68,7 +68,6 @@ export interface SyncState {
   last_sync_at: number;
   /** 上次失败的英文原因，成功后为空；界面文案由前端给。 */
   error: string;
-  legacy_running: boolean;
 }
 
 export interface Batch {

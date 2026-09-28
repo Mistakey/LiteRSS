@@ -2,6 +2,12 @@
 
 LiteRSS 的版本变化记录在这里。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 移除
+
+- 旧版 MrRSS 的首次启动导入与「旧版正在运行」提示。
+
 ## [0.1.0] - 2026-09-28
 
 LiteRSS 的第一个版本：桌面上的 FreshRSS 未读阅读器，支持 Windows 与 macOS。
