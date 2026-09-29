@@ -78,6 +78,7 @@ func Table(d Deps) []Route {
 		{Method: http.MethodPost, Path: "/api/articles/{id}/fulltext", Mutates: true, Handler: FetchFullText(d.Enrich)},
 		{Method: http.MethodPost, Path: "/api/articles/translate-titles", Mutates: true, Handler: TranslateTitles(d.Enrich)},
 		{Method: http.MethodPost, Path: "/api/articles/{id}/summary", Mutates: true, Handler: Summarize(d.Enrich)},
+		{Method: http.MethodPost, Path: "/api/articles/{id}/translation", Mutates: true, Handler: TranslateArticle(d.Enrich)},
 	}
 }
 

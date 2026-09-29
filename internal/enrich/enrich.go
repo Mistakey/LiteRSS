@@ -1,7 +1,8 @@
 // Package enrich holds the content actions on articles the reader opens:
-// fetching the full text, translating titles and summarizing (spec D11).
-// Their results live in the local tables fulltext_cache, title_translations
-// and summaries, which sync never writes.
+// fetching the full text, translating titles, summarizing (spec D11) and
+// translating the body (spec D21). Their results live in the local tables
+// fulltext_cache, title_translations, summaries and article_translations,
+// which sync never writes.
 package enrich
 
 import (
@@ -86,8 +87,8 @@ type fetch struct {
 
 // FullText returns an article's full text: the cached one, else a fresh
 // fetch of its link, which only the reader's button asks for (spec D11).
-// Only a success is cached (pitfall 21), and it drops the article's summary,
-// which was made from the RSS body. Concurrent calls for one article share a
+// Only a success is cached (pitfall 21), and it drops the article's summary
+// and translation, which were made from the RSS body. Concurrent calls for one article share a
 // fetch.
 func (s *Service) FullText(ctx context.Context, id int64) (FullText, error) {
 	var content string
@@ -155,9 +156,10 @@ func (s *Service) runFetch(id int64, link string, f *fetch) {
 	f.res = FullText{Outcome: fulltext.OutcomeSuccess, Content: r.Content}
 }
 
-// cacheFullText stores a fetched full text and drops the summary made before
-// it, so the next summary is made from what the reader now shows. The
-// article may be gone meanwhile (retention cleanup); then nothing is cached.
+// cacheFullText stores a fetched full text and drops the summary and the
+// translation made before it, so the next ones are made from what the reader
+// now shows. The article may be gone meanwhile (retention cleanup); then
+// nothing is cached.
 func (s *Service) cacheFullText(ctx context.Context, id int64, content string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -173,6 +175,9 @@ func (s *Service) cacheFullText(ctx context.Context, id int64, content string) e
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries WHERE item_id = ?`, id); err != nil {
 		return fmt.Errorf("drop the RSS summary: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM article_translations WHERE item_id = ?`, id); err != nil {
+		return fmt.Errorf("drop the RSS translation: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("cache full text: %w", err)
@@ -433,13 +438,12 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 		return Summary{}, fmt.Errorf("read article: %w", err)
 	}
 
-	values, err := s.settings.Load(ctx)
+	model, ok, err := s.model(ctx)
 	if err != nil {
-		return Summary{}, fmt.Errorf("read the model settings: %w", err)
+		return Summary{}, err
 	}
-	model := summary.Model{Endpoint: values["llm_endpoint"], Name: values["llm_model"], APIKey: values["llm_api_key"], HTTP: s.api}
-	if model.Endpoint == "" || model.Name == "" {
-		return Summary{Note: "还没有配置摘要模型，请在设置里填写。"}, nil
+	if !ok {
+		return Summary{Note: noModel}, nil
 	}
 
 	fromRSS := !full.Valid
@@ -462,7 +466,7 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 			return Summary{}, ctx.Err()
 		}
 		log.Printf("Summary for %d: %v", id, err)
-		return Summary{Note: "摘要生成失败，请检查设置里的摘要模型，或稍后再试。"}, nil
+		return Summary{Note: "摘要生成失败，请检查设置里的大模型，或稍后再试。"}, nil
 	}
 	// A made summary is kept even when the reader has left meanwhile, but one
 	// from the RSS body not once a full text has arrived: that one replaces it.
@@ -475,4 +479,18 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 		return Summary{}, fmt.Errorf("store summary: %w", err)
 	}
 	return Summary{HTML: summary.RenderHTML(md), Note: note}, nil
+}
+
+// noModel is the Chinese hint when the model is not configured.
+const noModel = "还没有配置大模型，请在设置里填写。"
+
+// model reads the one model configuration (spec D10); ok is false when it
+// is not configured, its endpoint or model name empty.
+func (s *Service) model(ctx context.Context) (m summary.Model, ok bool, err error) {
+	values, err := s.settings.Load(ctx)
+	if err != nil {
+		return summary.Model{}, false, fmt.Errorf("read the model settings: %w", err)
+	}
+	m = summary.Model{Endpoint: values["llm_endpoint"], Name: values["llm_model"], APIKey: values["llm_api_key"], HTTP: s.api}
+	return m, m.Endpoint != "" && m.Name != "", nil
 }

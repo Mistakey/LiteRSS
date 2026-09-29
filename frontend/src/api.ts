@@ -102,6 +102,12 @@ export interface Summary {
   note: string;
 }
 
+/** 全文翻译：与送去的块一一对应的纯文本译文；没有译文时 blocks 为空，message 给中文原因。 */
+export interface Translation {
+  blocks: string[];
+  message: string;
+}
+
 export interface SettingsView {
   /** 面板编辑的全部键；凭据一律为空串，已存的列在 saved_secrets。 */
   settings: SettingsData;
@@ -205,6 +211,9 @@ export const api = {
   content: (id: number) => getJSON<Body>(`/api/articles/${id}/content`),
   fullText: (id: number) => postJSON<FullText>(`/api/articles/${id}/fulltext`),
   summary: (id: number) => postJSON<Summary>(`/api/articles/${id}/summary`),
+  /** blocks 是阅读区显示的正文里要翻的块文字（utils/bilingual.ts 的 textBlocks）。 */
+  translation: (id: number, blocks: string[]) =>
+    postJSON<Translation>(`/api/articles/${id}/translation`, { blocks }),
 
   translateTitles: (ids: number[]) =>
     postJSON<TitleTranslations>('/api/articles/translate-titles', { ids }),

@@ -60,6 +60,7 @@ describe('详情', () => {
     expect(body.findAll('img[src]')).toHaveLength(2);
     expect(w.findAll('.float-bar .btn').map((b) => b.text())).toEqual([
       '摘要',
+      '翻译',
       '抓取全文',
       '在浏览器打开',
       '标为未读',
@@ -140,6 +141,95 @@ describe('详情', () => {
     expect(w.find('.summary li').text()).toBe('全文要点');
     expect(w.find('.summary .note').exists()).toBe(false);
     expect(w.find('.float-bar .btn').text()).toBe('已摘要');
+    w.unmount();
+  });
+});
+
+describe('全文翻译', () => {
+  const translateBtn = (w: Awaited<ReturnType<typeof openRow>>) =>
+    w.find('.float-bar .btn.translate');
+  const translations = (w: Awaited<ReturnType<typeof openRow>>) =>
+    w.findAll('.article-body .literss-tr').map((t) => t.text());
+
+  beforeEach(() => {
+    be.byId(3)!.content =
+      '<p>First paragraph.</p><pre><code>code()</code></pre><ul><li>An item</li></ul>';
+  });
+
+  it('点三次依次为对照 → 原文 → 对照，第三次不再请求', async () => {
+    be.translator = (_id, blocks) => ({ blocks: blocks.map((b) => '译：' + b), message: '' });
+    const w = await openRow(3);
+    expect(translateBtn(w).text()).toBe('翻译');
+
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(be.callsTo('POST', '/api/articles/3/translation')[0].body).toEqual({
+      blocks: ['First paragraph.', 'An item'],
+    });
+    expect(translations(w)).toEqual(['译：First paragraph.', '译：An item']);
+    expect(w.find('.article-body p .literss-tr').text()).toBe('译：First paragraph.');
+    expect(w.find('.article-body pre .literss-tr').exists()).toBe(false);
+    expect(translateBtn(w).text()).toBe('原文');
+
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(translations(w)).toEqual([]);
+    expect(w.find('.article-body').text()).toContain('First paragraph.');
+    expect(translateBtn(w).text()).toBe('翻译');
+
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(translations(w)).toEqual(['译：First paragraph.', '译：An item']);
+    expect(be.callsTo('POST', '/api/articles/3/translation')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('标题判定为中文的文章没有「翻译」', async () => {
+    const w = await openRow(2);
+    expect(translateBtn(w).exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('翻译中显示「翻译中…」，失败显示中文原因并停在原文', async () => {
+    let finish!: (t: { blocks: string[]; message: string }) => void;
+    be.translator = () => new Promise((r) => (finish = r));
+    const w = await openRow(3);
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(translateBtn(w).text()).toBe('翻译中…');
+
+    finish({ blocks: [], message: '全文翻译失败，请检查设置里的大模型，或稍后再试。' });
+    await settle();
+    expect(w.find('.notice.translate-failed').text()).toBe(
+      '全文翻译失败，请检查设置里的大模型，或稍后再试。'
+    );
+    expect(translations(w)).toEqual([]);
+    expect(translateBtn(w).text()).toBe('翻译');
+    w.unmount();
+  });
+
+  it('抓到全文后旧译文作废，回到原文，再翻按全文请求', async () => {
+    be.translator = (_id, blocks) => ({ blocks: blocks.map((b) => '译：' + b), message: '' });
+    be.fullTexts[3] = { outcome: 'success', content: '<p>The full text.</p>', message: '' };
+    const w = await openRow(3);
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(translations(w)).toHaveLength(2);
+
+    await w
+      .findAll('.float-bar .btn')
+      .find((b) => b.text() === '抓取全文')!
+      .trigger('click');
+    await settle();
+    expect(w.find('.article-body').text()).toBe('The full text.');
+    expect(translateBtn(w).text()).toBe('翻译');
+
+    await translateBtn(w).trigger('click');
+    await settle();
+    expect(be.callsTo('POST', '/api/articles/3/translation').at(-1)!.body).toEqual({
+      blocks: ['The full text.'],
+    });
+    expect(translations(w)).toEqual(['译：The full text.']);
     w.unmount();
   });
 });

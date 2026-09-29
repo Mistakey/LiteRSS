@@ -103,7 +103,7 @@ describe('摘要', () => {
     const detail = await opened(3);
     await detail.summarize();
     expect(detail.summaryHtml).toBe('');
-    expect(detail.summaryNote).toBe('还没有配置摘要模型，请在设置里填写。');
+    expect(detail.summaryNote).toBe('还没有配置大模型，请在设置里填写。');
     await detail.summarize();
     expect(be.callsTo('POST', '/api/articles/3/summary')).toHaveLength(2);
   });
@@ -142,5 +142,52 @@ describe('摘要', () => {
     await detail.fetchFullText();
     await settle();
     expect(be.callsTo('POST', '/api/articles/1/summary')).toHaveLength(0);
+  });
+});
+
+describe('全文翻译', () => {
+  type Tr = { blocks: string[]; message: string };
+
+  it('换文章后慢到的译文丢弃，新文章停在原文', async () => {
+    let finish!: (t: Tr) => void;
+    be.translator = () => new Promise<Tr>((r) => (finish = r));
+    const detail = await opened(2);
+    const pending = detail.toggleTranslation();
+    await settle();
+    expect(detail.translating).toBe(true);
+
+    await useReader().open(1);
+    await settle();
+    finish({ blocks: ['译文'], message: '' });
+    await pending;
+    expect(detail.id).toBe(1);
+    expect(detail.translation).toBeNull();
+    expect(detail.bilingual).toBe(false);
+    expect(detail.translating).toBe(false);
+  });
+
+  it('翻译途中抓到全文：按 RSS 正文翻的译文丢弃，回到原文', async () => {
+    let finish!: (t: Tr) => void;
+    be.translator = () => new Promise<Tr>((r) => (finish = r));
+    be.fullTexts[2] = { outcome: 'success', content: '<p>The full text.</p>', message: '' };
+    const detail = await opened(2);
+    const pending = detail.toggleTranslation();
+    await settle();
+    await detail.fetchFullText();
+    finish({ blocks: ['摘录的译文'], message: '' });
+    await pending;
+    expect(detail.body).toBe('<p>The full text.</p>');
+    expect(detail.translation).toBeNull();
+    expect(detail.bilingual).toBe(false);
+    expect(detail.translating).toBe(false);
+  });
+
+  it('正文没有可翻的文字时不请求，给出原因', async () => {
+    be.byId(2)!.content = '<pre>code()</pre>';
+    be.translator = (_id, blocks) => ({ blocks, message: '' });
+    const detail = await opened(2);
+    await detail.toggleTranslation();
+    expect(be.callsTo('POST', '/api/articles/2/translation')).toHaveLength(0);
+    expect(detail.translateMessage).toBe('这篇文章没有可翻译的文字。');
   });
 });

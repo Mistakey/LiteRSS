@@ -46,7 +46,7 @@ export const SETTING_GROUPS: readonly { id: GroupId; label: string; keys: readon
     label: 'FreshRSS',
     keys: [...FRESHRSS_FORM, 'freshrss_auto_sync_interval'],
   },
-  { id: 'llm', label: '摘要模型', keys: MODEL_FORM },
+  { id: 'llm', label: '大模型', keys: MODEL_FORM },
   { id: 'translation', label: '标题翻译', keys: ['baidu_app_id', 'baidu_secret_key'] },
   {
     id: 'proxy',

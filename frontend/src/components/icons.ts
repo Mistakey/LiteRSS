@@ -24,6 +24,10 @@ export const icons = {
     path('M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.5l-1.8-5L5 9.7l5.2-1.8z'),
     path('M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z'),
   ],
+  translate: [
+    path('M4 5h9M8.5 3v2M11 5c-1 4-3.5 7-7 9M6.5 8.5c1.2 2 2.8 3.6 5 4.8'),
+    path('M13 21l4-9 4 9M14.5 17.5h5'),
+  ],
   mailOpen: [path('M3 10l9-6 9 6v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z'), path('M3 10l9 6 9-6')],
   mail: [['rect', { x: '3', y: '5', width: '18', height: '14', rx: '1' }], path('M3 7l9 6 9-6')],
   refresh: [

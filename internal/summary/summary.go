@@ -1,5 +1,6 @@
 // Package summary asks the configured model for a Chinese summary of an
-// article and renders the Markdown it answers (spec D11).
+// article and renders the Markdown it answers (spec D11), and for the
+// Chinese of an article's text blocks (spec D21).
 package summary
 
 import (

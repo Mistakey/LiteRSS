@@ -433,7 +433,7 @@ func TestSummarizeWithoutModelSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.HTML != "" || got.Note != "还没有配置摘要模型，请在设置里填写。" {
+	if got.HTML != "" || got.Note != "还没有配置大模型，请在设置里填写。" {
 		t.Fatalf("got %+v", got)
 	}
 }

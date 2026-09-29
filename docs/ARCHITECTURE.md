@@ -73,11 +73,11 @@
 - 列级权威由表表达（spec D6、D9）：
   - FreshRSS 所有、只由同步拉取写入（例外：推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
     `articles` 的全部列——条目 ID（十进制，主键）、stream ID、URL、标题、图片、`published_at`、`server_read` 镜像。
-  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）是本地数据，同步从不写。
+  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）、`article_translations`（全文译文，schema 版本 3）是本地数据，同步从不写。
     正文与全文分表，互不覆盖。
   - 用户意图：`pending_read`（每条目一行）与 `pending_mark_all`；显示状态 = 有意图取意图，否则取 `server_read`。
   - `meta` 是键值表，存上次成功同步时间这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
-- 以 `item_id` 为键的正文、全文、译文、摘要、`pending_read` 都 `ON DELETE CASCADE` 到 `articles`，删文章即连带删除。
+- 以 `item_id` 为键的正文、全文、标题译文、全文译文、摘要、`pending_read` 都 `ON DELETE CASCADE` 到 `articles`，删文章即连带删除。
   因此更新这些行只能 `ON CONFLICT DO UPDATE`，`INSERT OR REPLACE` 会先删行再级联清掉子表（pitfall 26）。
   `articles.stream_id` 不设外键。
 - 时间：条目 ID 就是 FreshRSS 的抓取时间（微秒，`database.FetchedAt`），不另存抓取时间列。`published_at` 是 Unix 秒，只用于显示与排序，
@@ -157,6 +157,7 @@
   - `POST /api/articles/{id}/fulltext`：`{outcome, content, message}`，`outcome` 为 `success` 或一种失败（含 `no_link`：文章没有可抓的 `http(s)` 链接），`message` 是失败的中文原因。
   - `POST /api/articles/translate-titles` `{ids}`（至多 `library.MaxCards` 个）：`{titles: [{id, translated_title}], message}`，只含已判定的标题；留在未判定的不出现，`message` 说明原因（百度未配置或出错）。
   - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（「摘要基于 RSS 正文。」）。
+  - `POST /api/articles/{id}/translation` `{blocks}`：全文翻译（spec D21），`blocks` 是阅读区所显示正文里要翻的块文字（1 到 3000 块，不能有空块）；回 `{blocks, message}`，`blocks` 是逐块对应的纯文本中文，为空表示没有译文、`message` 给原因（模型未配置、调用失败、块数对不上）。
 - 设置（`routes/settings.go` 只解析与回应，规则在 `settings.Panel`，spec D10）：
   - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含面板编辑的全部键（不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
     凭据（`encrypted`）一律为空串，`saved_secrets` 列出已存了值的凭据键——存下的凭据不回到前端。
@@ -176,12 +177,13 @@
 - 窗口按钮（`routes/window.go`，spec D4）：`POST /api/window/minimise`、`/api/window/maximise`（最大化，已最大化时还原）、`/api/window/close`
   （与点 × 相同，按 `close_to_tray` 藏到托盘或退出），都回 204；由壳实现的 `routes.Window` 执行。浏览器取证通道里前端不显示这些按钮。
 
-## 内容动作（`internal/enrich`，spec D11）
+## 内容动作（`internal/enrich`，spec D11、D21）
 
-- `enrich.Service` 每次调用都从设置读百度与模型配置，改了即生效。出网客户端由 `main.go` 注入：网页用 `httputil.CreateWebScrapingClient`（30 秒），百度与模型共用一个 `httputil.CreateHTTPClient`（90 秒）（pitfall 8）。三张结果表都用「文章仍在才写」的 upsert，保留期清理与之并发时不会写出孤行。
-- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。只有阅读区的「抓取全文」按钮调它（spec D11）。成功时在同一个事务里写缓存并删掉该文章的摘要（它基于 RSS 正文），下次摘要按全文重做。同一文章并发的抓取合并为一次，抓取不随某个请求取消，由客户端超时兜底。
+- `enrich.Service` 每次调用都从设置读百度与模型配置，改了即生效。出网客户端由 `main.go` 注入：网页用 `httputil.CreateWebScrapingClient`（30 秒），百度与模型共用一个 `httputil.CreateHTTPClient`（90 秒）（pitfall 8）。四张结果表都用「文章仍在才写」的 upsert，保留期清理与之并发时不会写出孤行。
+- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。只有阅读区的「抓取全文」按钮调它（spec D11）。成功时在同一个事务里写缓存并删掉该文章的摘要与全文译文（它们基于 RSS 正文），下次按全文重做。同一文章并发的抓取合并为一次，抓取不随某个请求取消，由客户端超时兜底。
 - 标题翻译：同一时间只跑一次，已有行的原样返回；标题（空白合并为一行）经 `translation.LanguageDetector.ShouldTranslate` 判为中文的存原标题（「已判定中文」，pitfall 11、12）；其余按行拼成至多 `translation.BaiduMaxQueryBytes` 的请求交给百度，请求之间隔 1.1 秒（标准版每秒一次）。百度原样返回的存原标题；百度未配置或出错时这些条目不写行，保持未判定。
 - 摘要：`summaries` 存模型返回的 Markdown，每次返回时经 `summary.RenderHTML` 渲染（gomarkdown 的 `SkipHTML` 丢弃原始 HTML，`Safelink` 只留安全链接）。新摘要只用阅读区显示的正文、从不抓取：`fulltext_cache` 有行用全文，否则用 RSS 正文并在 `note` 注明；可见字符不足 300 时不调模型、只给原因（RSS 正文太短时提示可以先抓全文）。基于 RSS 正文的摘要写库时若全文已在这期间缓存则不写，免得旧摘要盖过全文。输入经 `htmltext.Text` 抽成纯文本、至多 2 万字符；提示词写死、输出固定中文（`internal/summary`）。模型未配置（端点或模型为空）或调用失败也以 `note` 说明。摘要与它的 `note` 一起入库（`summaries.note`，schema 版本 2），再次打开照样说明；模型调用随请求取消，已生成的摘要即使请求已结束也写入。
+- 全文翻译（`enrich/translate.go`）：块由前端从阅读区显示的正文里取（`utils/bilingual.ts`），后端不解析 HTML。`article_translations` 每篇一行，`source_hash` 是送来的块数组（JSON）的 SHA-256，只有同样的块才命中缓存，所以正文变了会重翻并覆盖。未命中时按至多 3000 字符、40 块一批（单块超长时独占一批），同时至多 3 批交给模型（`summary.Model.Translate`：写死的提示词，要模型回与输入一一对应的 JSON 字符串数组，容忍代码围栏；`max_tokens` 8192）。任一批失败或块数对不上即取消其余批、整篇失败、不写库，`message` 给中文原因；全部成功才以 upsert 写入。
 
 ## 设置（`internal/settings`、`internal/config`、`internal/crypto`）
 
@@ -216,22 +218,24 @@
     `syncLabel` 把状态变成顶栏与应用菜单里的同步状态文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
   - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文与已缓存的全文，有全文就显示全文，从不自动抓取。`fetchFullText`（「抓取全文」按钮）才 `POST /api/articles/{id}/fulltext`：
     成功则全文替换显示，已有摘要（或摘要说明）时清掉并重新请求摘要；失败保留 RSS 正文并显示后端给的中文原因。显示的正文不足 300 个可见字符（`utils/article.ts`，与后端摘要门槛一致）或正在抓取时摘要不可用；
-    RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
+    RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。
+    「翻译」（`toggleTranslation`，只对标题未判定为中文的文章，spec D21）点击时才用 `utils/bilingual.ts` 的 `textBlocks` 从清洗后的显示正文取块（没有可翻的文字就不请求、给出原因）（段落、列表项、小标题、引用、图注；`pre`、表格、公式里的不取），`POST /api/articles/{id}/translation`，整篇回来才切到对照；再点回原文、再点直接用已有译文。失败停在原文并显示原因，可再点重试。抓到全文后译文作废、回到原文。
+    换文章后慢到的旧响应按序号丢弃，正文在翻译途中换了（抓到全文）也丢弃。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
 - 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源用按 ID 取色的字母徽标，不加载源图标。
   右键任一节点「全部标为已读」。侧栏没有底栏：立即同步与设置都在顶栏应用菜单里。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
 - 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / RSS 正文太短时建议先抓全文 / 失败原因 +「在浏览器打开」）、摘要框、正文；
-  「摘要 / 抓取全文（还没显示全文时）/ 在浏览器打开 / 标为未读（已读时）」在底部浮动条。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
-- 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`。
+  「摘要 / 翻译（标题不是中文时；对照时为「原文」，请求中为「翻译中…」）/ 抓取全文（还没显示全文时）/ 在浏览器打开 / 标为未读（已读时）」在底部浮动条。对照时 `ArticleBody` 用 `interleave` 在同一份清洗后的 HTML 的同样的块里插入 `span.literss-tr`（`textContent` 写入，块尾，有嵌套块时在第一个嵌套块前），再经 `sanitizeArticleHtml`；译文淡色加左侧细线。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
+- 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`（对照视图在清洗结果里插入纯文本译文后再清洗一次：多一轮序列化与解析，不让变异型 XSS 钻空子）。
   它先在 `DOMParser` 的惰性文档里把 `iframe`、`embed`、`object`、`video`、`audio` 换成「在浏览器打开嵌入内容」链接（只收 http(s)，没有就删），把 `data-src`/`data-original` 换进 `src`；
   再交 DOMPurify（HTML + MathML，禁 style/form 类标签与 style/id/name 属性），属性钩子让 URL 只收绝对 http(s)（链接另收 `mailto:`、图片另收 `data:image/*`；`srcset` 按浏览器的切法逐个候选检查，描述符只收 `100w`、`2x` 这种形状），
   并删掉指向应用自身源与回环主机（`localhost`、`*.localhost`、127/8、0/8、`::1`）的地址。列表缩略图的 `image_url` 经同一条规则（`safeImageUrl`）。
   清洗之后才做增强（`utils/enhance.ts`：KaTeX 公式、highlight.js 代码高亮，类名同时读 FreshRSS 的 `data-sanitized-class`），正文含 `$`、`\`、`<pre>` 或 `math` 时才动态载入这个模块。
 - 图片查看器（`ImageViewer`，spec D15）：点正文里的图打开，收正文里全部图片；滚轮以指针为中心缩放，双击在适应窗口与原始大小之间切换，图片超出窗口时可拖动平移，
   点背景 / ✕ / Esc 关闭，多图左右箭头与方向键切换，载入失败时给提示；几何在 `utils/viewer.ts`。正文与摘要的链接点击规则在 `utils/links.ts`。
-- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：固定大小的模态框（780×520，窗口小时收缩），左侧导航按 `SETTING_GROUPS` 依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于，
+- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：固定大小的模态框（780×520，窗口小时收缩），左侧导航按 `SETTING_GROUPS` 依次为 FreshRSS、大模型、标题翻译、网络代理、应用、关于，
   右侧一次只显示一组（`v-show`，切换不丢草稿、测试结果与检查更新状态），底部常驻取消 / 保存。导航项用圆点标出有未保存改动（`dirtyGroups`）或有不合法值（`invalidGroups`，目前只有同步间隔）的分组，
   保存因不合法值被拒时跳到那一组并聚焦输入框。
   打开时 `GET /api/settings` 作草稿，「保存」一次把所有分组里清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
@@ -253,7 +257,7 @@
 | `internal/freshrss` | FreshRSS Google Reader API 客户端：订阅与标签、`stream/items/ids`、`stream/items/contents`、`edit-tag`、`mark-all-as-read`，条目 ID 为 `int64`（`ParseItemID` 认十进制与长格式）。首次调用时登录，401 时重新登录重试一次；`Clients.For` 让同一配置共用一个已登录客户端。局域网服务器用自己的 HTTP 客户端（pitfall 9）。`freshrsstest` 是测试缝假服务，`tools/fake-freshrss` 把它提供给开发实例（[Testing](TESTING.md#假-freshrss)）；`internal/syncer` 的拉取调用订阅、标签与两个 `stream/items` 接口，推送器调用 `edit-tag` 与 `mark-all-as-read` |
 | `internal/fulltext` | 全文抓取：`fetch.go` 负责出网，`extract.go` 把一次响应判为 `success` / `no_content` / `blocked` / `parse_failed` / `unreachable`（pitfall 21），`message.go` 给各结论的中文原因；调用方是 `internal/enrich` |
 | `internal/translation` | 百度翻译客户端（`Baidu.TranslateLines`，按行批量译成中文）与语言检测；短文本先按书写系统判语言（pitfall 11） |
-| `internal/summary`、`internal/ai` | 摘要：写死的中文提示词与 Markdown 渲染；`ai` 是模型调用，OpenAI 兼容与 DeepSeek 两种请求格式 |
+| `internal/summary`、`internal/ai` | 摘要与全文翻译的模型调用：写死的中文提示词、摘要的 Markdown 渲染、译文 JSON 数组的解析；`ai` 是模型调用，OpenAI 兼容与 DeepSeek 两种请求格式 |
 | `internal/htmltext` | 把不可信 HTML 抽成可见纯文本（列表摘录与摘要输入共用） |
 | `internal/utils/httputil` | 出站 HTTP 客户端与三态代理（ADR 0004，pitfall 8、10） |
 | `internal/update` | 检查更新与应用内更新：GitHub 最新正式发布与当前版本比较；`Updater` 下载、校验并按 `Locate` / `PlanInstall` 安装（spec D20）；`Watch` 是壳的定时自动检查；`updatetest` 是假发布服务 |

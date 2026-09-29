@@ -11,7 +11,8 @@ import Icon from './Icon.vue';
 import ImageViewer from './ImageViewer.vue';
 
 // 详情栏（spec D15）：无工具栏；标题块、抓全文提示、摘要框、正文；
-// 「摘要 / 抓取全文 / 在浏览器打开 / 标为未读」在底部浮动条，已显示全文时没有「抓取全文」。
+// 「摘要 / 翻译 / 抓取全文 / 在浏览器打开 / 标为未读」在底部浮动条，已显示全文时没有「抓取全文」，
+// 标题是中文的文章没有「翻译」（spec D21）。
 const reader = useReader();
 const detail = useDetail();
 const now = useNow();
@@ -25,6 +26,9 @@ const showSummary = computed(
 );
 const summaryLabel = computed(() =>
   detail.summaryLoading ? '生成中…' : detail.summaryHtml ? '已摘要' : '摘要'
+);
+const translateLabel = computed(() =>
+  detail.translating ? '翻译中…' : detail.bilingual ? '原文' : '翻译'
 );
 /** 抓取失败且 RSS 正文太短：提示里的「在浏览器打开」是主按钮。 */
 const shortFailure = computed(() => detail.fetchStatus === 'failed' && !detail.canSummarize);
@@ -96,6 +100,11 @@ function toggleRead() {
             </button>
           </div>
 
+          <div v-if="detail.translateMessage" class="notice warn translate-failed">
+            <Icon name="warn" />
+            <div class="grow">{{ detail.translateMessage }}</div>
+          </div>
+
           <ArticleSummary
             v-if="showSummary"
             :html="detail.summaryHtml"
@@ -108,6 +117,7 @@ function toggleRead() {
           <ArticleBody
             v-else
             :html="detail.body"
+            :translation="detail.bilingual ? detail.translation : null"
             @image="(images, start) => (viewer = { images, start })"
             @link="detail.openLink"
           />
@@ -125,6 +135,17 @@ function toggleRead() {
           @click="detail.summarize"
         >
           <Icon name="spark" />{{ summaryLabel }}
+        </button>
+        <button
+          v-if="detail.translatable"
+          class="btn translate"
+          :class="{ active: detail.bilingual }"
+          :disabled="detail.translateDisabled"
+          :aria-pressed="detail.bilingual"
+          :title="detail.bilingual ? '回到原文' : '中英段落对照'"
+          @click="detail.toggleTranslation"
+        >
+          <Icon name="translate" />{{ translateLabel }}
         </button>
         <button
           v-if="detail.fetchStatus !== 'ok'"
@@ -314,6 +335,11 @@ hr {
 
 .float-bar .btn.primary {
   border-color: var(--accent);
+}
+
+.float-bar .btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .float-bar .div {

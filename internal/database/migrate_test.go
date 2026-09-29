@@ -59,6 +59,38 @@ func TestMigrateAppendsVersion2Once(t *testing.T) {
 	}
 }
 
+// A library made by the release before full-text translation (version 2)
+// gains the translation table and keeps what it had.
+func TestMigrateVersion2LibraryToVersion3(t *testing.T) {
+	ctx := context.Background()
+	db, err := openRaw(tempDBPath(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := migrate(ctx, db, migrations[:2]); err != nil {
+		t.Fatalf("migrate to 2: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO articles (item_id, stream_id, published_at) VALUES (1, 'feed/1', 1);
+		INSERT INTO summaries (item_id, summary, note, created_at) VALUES (1, '摘要', '依据', 1)`); err != nil {
+		t.Fatalf("seed v2 data: %v", err)
+	}
+
+	if err := migrate(ctx, db, migrations); err != nil {
+		t.Fatalf("migrate to 3: %v", err)
+	}
+	if got := userVersion(t, db); got != 3 {
+		t.Fatalf("user_version = %d, want 3", got)
+	}
+	var note string
+	if err := db.QueryRow(`SELECT note FROM summaries WHERE item_id = 1`).Scan(&note); err != nil || note != "依据" {
+		t.Errorf("v2 summary after upgrade = %q, %v", note, err)
+	}
+	if _, err := db.Exec(`INSERT INTO article_translations (item_id, source_hash, blocks, created_at) VALUES (1, 'h', '["译"]', 1)`); err != nil {
+		t.Errorf("version 3 table missing: %v", err)
+	}
+}
+
 func TestMigrateFailureLeavesVersionUnchanged(t *testing.T) {
 	db := openTemp(t)
 

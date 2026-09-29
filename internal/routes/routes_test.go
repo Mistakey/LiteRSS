@@ -143,6 +143,7 @@ func TestRouteTable(t *testing.T) {
 		"POST /api/sync/run",
 		"POST /api/articles/{id}/read", "POST /api/articles/read", "POST /api/streams/read", "POST /api/undo",
 		"POST /api/articles/{id}/fulltext", "POST /api/articles/translate-titles", "POST /api/articles/{id}/summary",
+		"POST /api/articles/{id}/translation",
 		"POST /api/settings/update", "POST /api/settings/freshrss/test", "POST /api/settings/llm/test",
 		"POST /api/browser/open", "POST /api/update/start",
 	} {

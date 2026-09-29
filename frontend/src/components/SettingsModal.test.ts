@@ -53,12 +53,12 @@ function updates() {
 }
 
 describe('设置面板', () => {
-  it('左侧导航依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于，一次只显示一组', async () => {
+  it('左侧导航依次为 FreshRSS、大模型、标题翻译、网络代理、应用、关于，一次只显示一组', async () => {
     const w = await mounted();
     expect(w.find('.side h2').text()).toBe('设置');
     expect(w.findAll('.nav-item').map((n) => n.text())).toEqual([
       'FreshRSS',
-      '摘要模型',
+      '大模型',
       '标题翻译',
       '网络代理',
       '应用',

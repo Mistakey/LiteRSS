@@ -268,7 +268,7 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
             </div>
           </fieldset>
 
-          <fieldset v-show="group === 'llm'" class="group" data-group="llm" aria-label="摘要模型">
+          <fieldset v-show="group === 'llm'" class="group" data-group="llm" aria-label="大模型">
             <label class="row">
               <span class="lbl">接口地址</span>
               <input
@@ -287,7 +287,9 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
               <label class="lbl" for="llm_api_key">API 密钥</label>
               <SecretField name="llm_api_key" placeholder="本地模型可留空" />
             </div>
-            <p class="tip">OpenAI 兼容接口。只用来给英文文章生成中文摘要，点「摘要」时才调用。</p>
+            <p class="tip">
+              OpenAI 兼容接口。用来生成中文摘要和全文翻译，点「摘要」或「翻译」时才调用。
+            </p>
             <div class="test">
               <button
                 type="button"
@@ -387,7 +389,7 @@ const proxyModes: { value: SettingsData['proxy_mode']; label: string }[] = [
               </div>
             </template>
             <p class="tip">
-              用于抓全文、标题翻译、摘要与检查更新；连 FreshRSS 不走代理。保存后立即生效。
+              用于抓全文、标题翻译、摘要、全文翻译与检查更新；连 FreshRSS 不走代理。保存后立即生效。
             </p>
           </fieldset>
 
