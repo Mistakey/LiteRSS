@@ -23,6 +23,7 @@ import (
 	"LiteRSS/internal/database"
 	"LiteRSS/internal/desktopapi"
 	"LiteRSS/internal/enrich"
+	"LiteRSS/internal/feedicon"
 	"LiteRSS/internal/freshrss"
 	"LiteRSS/internal/identity"
 	"LiteRSS/internal/library"
@@ -86,7 +87,8 @@ func main() {
 	configureProxy(store)
 	autostart := applyAutostart(store)
 
-	syncService := syncer.New(db, freshrssRemote(store))
+	account := freshrssAccount(store)
+	syncService := syncer.New(db, func() (syncer.Remote, error) { return account() })
 	syncScheduler := syncer.NewScheduler(func(ctx context.Context) {
 		if _, err := syncService.RunCycle(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("Sync cycle failed: %v", err)
@@ -125,6 +127,7 @@ func main() {
 			Web: httputil.CreateWebScrapingClient(30 * time.Second),
 			API: outbound,
 		}),
+		Icons:    feedicon.New(db.DB, func() (feedicon.Source, error) { return account() }),
 		Settings: panel,
 		// Set below, once the application exists.
 		Browser: &systemBrowser,
@@ -318,11 +321,12 @@ func applyAutostart(store *settings.Store) *shell.Autostart {
 	return autostart
 }
 
-// freshrssRemote returns the sync service's client source: the account in the
-// settings, read at the start of every cycle and push.
-func freshrssRemote(store *settings.Store) func() (syncer.Remote, error) {
+// freshrssAccount returns the FreshRSS client source that sync and the feed
+// icons share: the account in the settings, read at the start of every cycle,
+// push and icon fetch.
+func freshrssAccount(store *settings.Store) func() (*freshrss.Client, error) {
 	var clients freshrss.Clients
-	return func() (syncer.Remote, error) {
+	return func() (*freshrss.Client, error) {
 		values, err := store.Load(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("read the FreshRSS account: %w", err)

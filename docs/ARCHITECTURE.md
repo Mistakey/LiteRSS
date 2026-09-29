@@ -6,7 +6,7 @@
 ## 现状
 
 旧的同步、数据库访问、HTTP handler 与路由、AI profile、AI 翻译、内容缓存和整个前端已经删除。
-主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
+主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树、源图标）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
 
 - 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、启动同步调度，并在回环地址上启动 desktopapi。
 - 前端：Vue 3 + TypeScript + Vite + Vitest + Pinia，三栏与设置面板都已接上 API（见下「前端」）。
@@ -73,7 +73,8 @@
 - 列级权威由表表达（spec D6、D9）：
   - FreshRSS 所有、只由同步拉取写入（例外：推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
     `articles` 的全部列——条目 ID（十进制，主键）、stream ID、URL、标题、图片、`published_at`、`server_read` 镜像。
-  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）、`article_translations`（全文译文，schema 版本 3）是本地数据，同步从不写。
+  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）、`article_translations`（全文译文，schema 版本 3）是本地数据，同步从不写；
+    `feed_icons`（源图标缓存，schema 版本 4）也是本地数据，随源 `ON DELETE CASCADE` 删除。
     正文与全文分表，互不覆盖。
   - 用户意图：`pending_read`（每条目一行）与 `pending_mark_all`；显示状态 = 有意图取意图，否则取 `server_read`。
   - `meta` 是键值表，存上次成功同步时间这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
@@ -147,6 +148,11 @@
     三者在一条语句里算出，彼此一致。
   - `GET /api/subscriptions`：`{categories: [{id, label, feeds}], feeds}`，标签按名、源按标题排序（不区分 ASCII 大小写）；
     属于多个标签的源在每个标签下各出现一次，`feeds` 是不属于任何标签的源。
+  - `GET /api/feeds/icon?id=<stream id>&v=<iconUrl>`：源图标（spec D15，`internal/feedicon`），`v` 只作缓存版本，图标带 `Cache-Control: private, max-age=86400`；
+    没有图标、FreshRSS 没配置或连不上都回不缓存的空 204（不用 404，免得每次启动控制台都报加载失败），前端据此回落字母徽标。
+    图标只向已配置的 FreshRSS 取：`freshrss.Client.Icon` 只用 `iconUrl` 的查询串，请求 API 同级的 `f.php`（直连、不带会话），与 FreshRSS 占位图
+    `themes/icons/default_favicon.ico` 字节相同、或不是位图（含 SVG）的都算没有图标。第一次请求时取，存进 `feed_icons`，`iconUrl` 变了才重取；
+    没有图标也记一行（空 `data`），`feedicon.NoIconRetry` 7 天后再问；连不上不记。同一个源的并发请求只取一次。
 - 已读动作（`routes/read.go`）经 `routes.Intents`（`*syncer.Service`）只写意图，推送器随后发给 FreshRSS（spec D6、D7）。请求体是 JSON，未知字段与类型不符回 400；已不在库里的 ID 静默忽略：
   - `POST /api/articles/{id}/read` `{read}`：单篇标已读 / 未读（连同同 URL 组），204，不给撤销令牌。
   - `POST /api/articles/read` `{ids}`：「此篇及以上 / 以下」，`ids` 是前端从快照取的范围；只对显示为未读的写意图。
@@ -222,7 +228,7 @@
     「翻译」（`toggleTranslation`，只对标题未判定为中文的文章，spec D21）点击时才用 `utils/bilingual.ts` 的 `textBlocks` 从清洗后的显示正文取块（没有可翻的文字就不请求、给出原因）（段落、列表项、小标题、引用、图注；`pre`、表格、公式里的不取），`POST /api/articles/{id}/translation`，整篇回来才切到对照；再点回原文、再点直接用已有译文。失败停在原文并显示原因，可再点重试。抓到全文后译文作废、回到原文。
     换文章后慢到的旧响应按序号丢弃，正文在翻译途中换了（抓到全文）也丢弃。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
-- 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源用按 ID 取色的字母徽标，不加载源图标。
+- 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源徽标（`FeedBadge`，侧栏、列表行与详情共用）优先显示经 `/api/feeds/icon` 取来的源图标，没有 `iconUrl` 或图取不到时用按 ID 取色的字母徽标；取不到的地址各徽标共用记录，不反复请求。
   右键任一节点「全部标为已读」。侧栏没有底栏：立即同步与设置都在顶栏应用菜单里。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。

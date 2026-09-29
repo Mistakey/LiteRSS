@@ -17,23 +17,27 @@ import (
 	"LiteRSS/internal/browser"
 	"LiteRSS/internal/database"
 	"LiteRSS/internal/enrich"
+	"LiteRSS/internal/feedicon"
 	"LiteRSS/internal/library"
 	"LiteRSS/internal/settings"
 	"LiteRSS/internal/syncer"
 )
 
 type testAPI struct {
-	db        *database.DB
-	lib       *library.Library
-	svc       *syncer.Service
-	enrich    *enrich.Service
-	handler   http.Handler
-	triggered int
-	store     *settings.Store
-	opened    []string
-	updates   Updater
-	window    fakeWindow
-	autostart []bool
+	db     *database.DB
+	lib    *library.Library
+	svc    *syncer.Service
+	enrich *enrich.Service
+	icons  *feedicon.Service
+	// iconSource stands in for FreshRSS's favicon cache.
+	iconSource fakeIconSource
+	handler    http.Handler
+	triggered  int
+	store      *settings.Store
+	opened     []string
+	updates    Updater
+	window     fakeWindow
+	autostart  []bool
 	// autostartErr is what the system answers a change to startup_on_boot.
 	autostartErr error
 }
@@ -49,6 +53,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	t.Cleanup(svc.Close)
 	api := &testAPI{db: db, lib: library.New(db.DB), svc: svc, store: settings.New(db.DB),
 		enrich: enrich.New(db.DB, noSettings{}, enrich.Clients{Web: &http.Client{}, API: &http.Client{}})}
+	api.icons = feedicon.New(db.DB, func() (feedicon.Source, error) { return &api.iconSource, nil })
 	api.handler = Handler(api.deps())
 	return api
 }
@@ -69,6 +74,7 @@ func (a *testAPI) deps() Deps {
 		Library: a.lib,
 		Intents: a.svc,
 		Enrich:  a.enrich,
+		Icons:   a.icons,
 
 		Settings: a.panel(),
 		Browser:  browser.New(func(u string) error { a.opened = append(a.opened, u); return nil }),

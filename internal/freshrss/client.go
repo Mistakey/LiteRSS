@@ -37,6 +37,9 @@ type Client struct {
 	mu         sync.Mutex
 	authToken  string
 	writeToken string
+	// FreshRSS's placeholder favicon, once fetched (icon.go).
+	placeholderKnown bool
+	placeholder      []byte
 }
 
 // NewClient creates a client; it does not contact the server.

@@ -8,6 +8,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowReactive } from 'vue';
 import {
   api,
+  feedIconUrl,
   MAX_CARDS,
   READING_LIST,
   type Card,
@@ -58,8 +59,23 @@ export const useReader = defineStore('reader', () => {
     if (s === READING_LIST) return '全部订阅';
     const cat = tree.value.categories.find((c) => c.id === s);
     if (cat) return cat.label;
-    const all = [...tree.value.feeds, ...tree.value.categories.flatMap((c) => c.feeds)];
-    return all.find((f) => f.id === s)?.title || '未知订阅源';
+    return feedsById.value.get(s)?.title || '未知订阅源';
+  }
+
+  const feedsById = computed(
+    () =>
+      new Map(
+        [...tree.value.feeds, ...tree.value.categories.flatMap((c) => c.feeds)].map((f) => [
+          f.id,
+          f,
+        ])
+      )
+  );
+
+  /** 源图标地址，没有为空串；FeedBadge 取不到图时回落字母徽标。 */
+  function iconFor(s: string): string {
+    const f = feedsById.value.get(s);
+    return f ? feedIconUrl(f) : '';
   }
 
   function unreadIn(s: string): number {
@@ -311,6 +327,7 @@ export const useReader = defineStore('reader', () => {
     hasMore,
     newCount,
     streamName,
+    iconFor,
     unreadIn,
     init,
     setView,

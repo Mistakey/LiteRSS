@@ -19,7 +19,8 @@ This document covers testing strategies and patterns for LiteRSS.
 
 同步相关的测试只对假服务跑，不连真实 FreshRSS。`internal/freshrss/freshrsstest.Server` 是一个 `http.Handler`，
 复现 spec D6 列出的服务端行为（两种 ID 格式、`n` 无上限、续页丢首条、`it`/`xt`、`edit-tag` 恒回 `OK`、`mark-all-as-read` 按 `ts` 截断、
-会话过期回 401；见 pitfall 28–30），其余接口一律 404。
+会话过期回 401；见 pitfall 28–30），以及不要会话的图标缓存：订阅的 `iconUrl` 一律指向 `f.php?h=<源 ID>`，
+`Feed.Icon` 为空时 `f.php` 回占位图 `freshrsstest.Placeholder`（也在 `PlaceholderPath`）；其余接口一律 404。
 
 - 测试里：`fake := freshrsstest.New("user", "secret")`，`AddFeeds` / `AddItems` 播种（条目 `ID` 就是抓取时间的微秒数），
   `srv := httptest.NewServer(fake)`，客户端用 `freshrss.NewClient(srv.URL, "user", "secret")`。
@@ -27,7 +28,7 @@ This document covers testing strategies and patterns for LiteRSS.
 - 断言服务端收到了什么：`Item`、`Items`、`EditTags`、`MarkAlls`、`Logins`。
 - `RejectItem` 是故障注入，不是 FreshRSS 的行为：点名该条目的 `edit-tag` 回 400，供推送器的二分定位测试用。
 
-开发实例要连的假服务用 `tools/fake-freshrss`，它用 `freshrsstest.Generate` 生成订阅与约 100 天内的文章（中英文标题、部分已读、同 URL 重发、缺发布时间）：
+开发实例要连的假服务用 `tools/fake-freshrss`，它用 `freshrsstest.Generate` 生成订阅与约 100 天内的文章（中英文标题、部分已读、同 URL 重发、缺发布时间；奇数号源有图标，偶数号源只有占位图）：
 
 ```bash
 go run ./tools/fake-freshrss            # 127.0.0.1:1240，账号 dev / dev；-feeds -items -seed -addr -user -pass 可调

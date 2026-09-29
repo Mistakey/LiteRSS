@@ -41,7 +41,20 @@ type Feed struct {
 	URL     string
 	HTMLURL string
 	Labels  []string
+	// Icon is what FreshRSS's favicon cache holds for the feed; without one
+	// f.php answers with Placeholder, as FreshRSS does.
+	Icon []byte
 }
+
+// Placeholder is the favicon FreshRSS serves for a feed it has none for, at
+// PlaceholderPath and from f.php.
+var Placeholder = []byte("\x00\x00\x01\x00fake FreshRSS placeholder favicon")
+
+// Favicon paths, relative to the FreshRSS root that holds APIPrefix.
+const (
+	FaviconPath     = "/f.php"
+	PlaceholderPath = "/themes/icons/default_favicon.ico"
+)
 
 // StreamID returns the feed's stream id.
 func (f Feed) StreamID() string { return FeedPrefix + strconv.Itoa(f.ID) }
@@ -221,8 +234,18 @@ func (s *Server) RejectItem(id int64) {
 	s.rejected[id] = true
 }
 
-// ServeHTTP answers the Google Reader API under APIPrefix.
+// ServeHTTP answers the Google Reader API under APIPrefix, and the favicon
+// cache at FaviconPath and PlaceholderPath, which need no session.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case FaviconPath:
+		s.favicon(w, r)
+		return
+	case PlaceholderPath:
+		w.Header().Set("Content-Type", "image/x-icon")
+		_, _ = w.Write(Placeholder)
+		return
+	}
 	// Routed by hand, not http.ServeMux: stream ids are not path-clean.
 	path, ok := strings.CutPrefix(r.URL.Path, APIPrefix)
 	if !ok {
@@ -243,7 +266,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// FreshRSS ends the token with a newline.
 		_, _ = fmt.Fprint(w, writeToken, "\n")
 	case "/reader/api/0/subscription/list":
-		s.subscriptionList(w)
+		s.subscriptionList(w, r)
 	case "/reader/api/0/tag/list":
 		s.tagList(w)
 	case "/reader/api/0/stream/items/ids":
@@ -321,7 +344,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (s *Server) subscriptionList(w http.ResponseWriter) {
+func (s *Server) subscriptionList(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	feeds := s.sortedFeeds()
 	s.mu.Unlock()
@@ -344,9 +367,25 @@ func (s *Server) subscriptionList(w http.ResponseWriter) {
 		for _, l := range f.Labels {
 			cats = append(cats, category{ID: LabelPrefix + l, Label: l})
 		}
-		subs = append(subs, subscription{ID: f.StreamID(), Title: f.Title, Categories: cats, URL: f.URL, HTMLURL: f.HTMLURL})
+		// FreshRSS gives every feed an absolute iconUrl into its favicon
+		// cache, built from its base_url, whether or not it holds an icon.
+		iconURL := fmt.Sprintf("http://%s%s?h=%d", r.Host, FaviconPath, f.ID)
+		subs = append(subs, subscription{ID: f.StreamID(), Title: f.Title, Categories: cats, URL: f.URL, HTMLURL: f.HTMLURL, IconURL: iconURL})
 	}
 	writeJSON(w, map[string]any{"subscriptions": subs})
+}
+
+// favicon answers f.php?h=<feed id> with the feed's icon, or the placeholder.
+func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(r.URL.Query().Get("h"))
+	s.mu.Lock()
+	icon := s.feeds[id].Icon
+	s.mu.Unlock()
+	if icon == nil {
+		icon = Placeholder
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(icon))
+	_, _ = w.Write(icon)
 }
 
 func (s *Server) tagList(w http.ResponseWriter) {

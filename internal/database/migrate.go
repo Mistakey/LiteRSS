@@ -16,6 +16,7 @@ var migrations = []migration{
 	schemaV1,
 	schemaV2,
 	schemaV3,
+	schemaV4,
 }
 
 // migrate runs every step the library has not run yet, one transaction per

@@ -185,6 +185,15 @@ async function postJSON<T>(path: string, body?: unknown): Promise<T> {
   return (await post(path, body)).json() as Promise<T>;
 }
 
+/**
+ * 源图标的地址：后端从 FreshRSS 的图标缓存取来（spec D15），没有 iconUrl 为空串。
+ * v 带上 iconUrl，图标换了就是新地址，不再用旧的浏览器缓存；取不到时后端回空的 204（不用 404，免得每次启动控制台都报加载失败），图解不出来，界面回落字母徽标。
+ */
+export function feedIconUrl(feed: Pick<Feed, 'id' | 'icon_url'>): string {
+  if (!feed.icon_url) return '';
+  return `/api/feeds/icon?${new URLSearchParams({ id: feed.id, v: feed.icon_url }).toString()}`;
+}
+
 /** 每次取卡片的上限（后端 library.MaxCards）。 */
 export const MAX_CARDS = 200;
 
