@@ -10,9 +10,6 @@ import { settingsDefaults, type SettingsData } from '../types/settings.generated
 
 type Key = keyof SettingsData;
 
-/** 面板能写的键；生成的默认值只含 schema 里非内部的键。 */
-export const SETTING_KEYS = Object.keys(settingsDefaults) as Key[];
-
 export type SecretKey =
   | 'freshrss_api_password'
   | 'llm_api_key'
@@ -39,7 +36,7 @@ export type TestName = 'freshrss' | 'model';
 
 export type GroupId = 'freshrss' | 'llm' | 'translation' | 'proxy' | 'app' | 'about';
 
-/** 面板左侧导航的分组，按显示顺序；每个可写的键恰好属于一组（「关于」没有键）。 */
+/** 面板左侧导航的分组，按显示顺序；面板里每个键恰好属于一组（「关于」没有键）。 */
 export const SETTING_GROUPS: readonly { id: GroupId; label: string; keys: readonly Key[] }[] = [
   {
     id: 'freshrss',
@@ -63,6 +60,12 @@ export const SETTING_GROUPS: readonly { id: GroupId; label: string; keys: readon
   { id: 'app', label: '应用', keys: ['close_to_tray', 'startup_on_boot', 'update_check_enabled'] },
   { id: 'about', label: '关于', keys: [] },
 ];
+
+/** 面板能写的键。 */
+export const SETTING_KEYS: readonly Key[] = SETTING_GROUPS.flatMap((g) => g.keys);
+
+/** schema 里 reader 分组的键：阅读区自己读写（stores/prefs），不在面板里。其余生成的键都要在 SETTING_GROUPS 里。 */
+export const READER_KEYS: readonly Key[] = ['bionic_reading'];
 
 /** saved：已保存，显示掩码；editing：已保存、正在填新值；cleared：保存时清除；empty：没保存过。 */
 export type SecretState = 'saved' | 'editing' | 'cleared' | 'empty';

@@ -9,6 +9,8 @@
 const BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, figcaption';
 /** 其中的文字原样保留、不翻。 */
 const KEEP = 'pre, table, math, svg';
+/** 插入的译文元素的类名；Bionic Reading 据此跳过译文。 */
+export const TRANSLATION_CLASS = 'literss-tr';
 
 interface Block {
   el: Element;
@@ -59,7 +61,7 @@ export function interleave(safeHtml: string, translations: string[]): string {
   if (blocks.length !== translations.length) return safeHtml;
   blocks.forEach(({ el }, i) => {
     const tr = document.createElement('span');
-    tr.className = 'literss-tr';
+    tr.className = TRANSLATION_CLASS;
     tr.lang = 'zh-CN';
     tr.textContent = translations[i];
     const nested = [...el.childNodes].find(

@@ -52,12 +52,12 @@ export class FakeBackend {
   /** 下一次 translate-titles 回应的译文（按 ID），没有的留在未判定。 */
   translations: Record<number, string> = {};
   syncStates: SyncState[] = [];
-  /** 抓全文的结果（按 ID）；没有的回 no_link。 */
-  fullTexts: Record<number, FullText> = {};
+  /** 抓全文的结果（按 ID）；没有的回 no_link。可以是 Promise，让测试控制何时完成。 */
+  fullTexts: Record<number, FullText | Promise<FullText>> = {};
   /** 已缓存的全文（按 ID），随正文一起返回；抓全文成功时写入。 */
   cachedFullTexts: Record<number, string> = {};
-  /** 摘要的结果（按 ID）；没有的回「还没有配置大模型」。 */
-  summaries: Record<number, Summary> = {};
+  /** 摘要的结果（按 ID）；没有的回「还没有配置大模型」。可以是 Promise。 */
+  summaries: Record<number, Summary | Promise<Summary>> = {};
   /** 全文翻译的回应；缺省回「还没有配置大模型」。可以返回 Promise，让测试控制何时完成。 */
   translator: ((id: number, blocks: string[]) => Translation | Promise<Translation>) | null = null;
   /** 已存的设置，凭据按明文存；GET 时凭据回空串、列进 saved_secrets。 */
@@ -177,7 +177,7 @@ export class FakeBackend {
     if (method === 'POST' && action) {
       const id = Number(action[1]);
       if (action[2] === 'fulltext') {
-        const ft = this.fullTexts[id] ?? {
+        const ft = (await this.fullTexts[id]) ?? {
           outcome: 'no_link',
           content: '',
           message: '这篇文章没有可抓取的原文链接。',
@@ -185,7 +185,9 @@ export class FakeBackend {
         if (ft.outcome === 'success') this.cachedFullTexts[id] = ft.content;
         return json(ft);
       }
-      return json(this.summaries[id] ?? { html: '', note: '还没有配置大模型，请在设置里填写。' });
+      return json(
+        (await this.summaries[id]) ?? { html: '', note: '还没有配置大模型，请在设置里填写。' }
+      );
     }
     const translation = url.pathname.match(/^\/api\/articles\/(\d+)\/translation$/);
     if (method === 'POST' && translation) {

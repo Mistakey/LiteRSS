@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { interleave } from '../utils/bilingual';
+import { applyBionic } from '../utils/bionic';
 import { interceptLink } from '../utils/links';
 import { sanitizeArticleHtml } from '../utils/sanitize';
 
@@ -8,24 +9,33 @@ import { sanitizeArticleHtml } from '../utils/sanitize';
 // 排版写死（spec D15）。点图打开查看器；点 http(s) 链接交给系统浏览器，不在窗口里跳转。
 // 给了译文时显示中英对照（spec D21）：interleave 在清洗结果里插入纯文本译文，插入后的 HTML 再清洗一次才进 v-html，
 // 免得「清洗 → 解析 → 序列化 → 再解析」这一轮给变异型 XSS 留口子。
-const props = defineProps<{ html: string; translation?: string[] | null }>();
+// bionic 为真时在公式、代码增强之后加粗英文词首（spec D22）；开关一变就以新 key 重建正文节点，每份 DOM 只加粗一次。
+const props = defineProps<{ html: string; translation?: string[] | null; bionic?: boolean }>();
 const emit = defineEmits<{ image: [images: string[], index: number]; link: [url: string] }>();
 
 const root = ref<HTMLElement>();
+/** 每次正文重建加一；异步增强回来时不是最新一轮就作废。 */
+let run = 0;
 const safe = computed(() => {
   const clean = sanitizeArticleHtml(props.html);
   return props.translation ? sanitizeArticleHtml(interleave(clean, props.translation)) : clean;
 });
 
 watch(
-  safe,
+  [safe, () => props.bionic],
   async () => {
+    const my = ++run;
     await nextTick();
     const el = root.value;
+    if (!el || my !== run) return;
     // 只有含公式或代码的正文才载入 KaTeX 与 highlight.js。
-    if (!el || !/[$\\]|<pre|math/.test(safe.value)) return;
-    const { enhance } = await import('../utils/enhance');
-    if (root.value === el) enhance(el);
+    if (/[$\\]|<pre|math/.test(safe.value)) {
+      const { enhance } = await import('../utils/enhance');
+      // 载入期间正文已重建：交给新的一轮，免得同一份 DOM 增强两次。
+      if (my !== run || root.value !== el) return;
+      enhance(el);
+    }
+    if (props.bionic) applyBionic(el);
   },
   { immediate: true }
 );
@@ -51,7 +61,13 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div ref="root" class="article-body" @click="onClick" v-html="safe"></div>
+  <div
+    ref="root"
+    :key="bionic ? 'bionic' : 'plain'"
+    class="article-body"
+    @click="onClick"
+    v-html="safe"
+  ></div>
 </template>
 
 <style scoped>
@@ -176,6 +192,11 @@ function onClick(e: MouseEvent) {
   border: 0;
   border-top: 1px solid var(--border);
   margin: 1.6em 0;
+}
+
+/* Bionic Reading 的词首（spec D22） */
+.article-body :deep(.bionic-fix) {
+  font-weight: 700;
 }
 
 /* highlight.js 配色，跟随系统主题 */

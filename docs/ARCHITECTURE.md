@@ -165,7 +165,7 @@
   - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（「摘要基于 RSS 正文。」）。
   - `POST /api/articles/{id}/translation` `{blocks}`：全文翻译（spec D21），`blocks` 是阅读区所显示正文里要翻的块文字（1 到 3000 块，不能有空块）；回 `{blocks, message}`，`blocks` 是逐块对应的纯文本中文，为空表示没有译文、`message` 给原因（模型未配置、调用失败、块数对不上）。
 - 设置（`routes/settings.go` 只解析与回应，规则在 `settings.Panel`，spec D10）：
-  - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含面板编辑的全部键（不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
+  - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含前端可写的全部键（面板各组与 `reader` 组的 Bionic Reading 开关，不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
     凭据（`encrypted`）一律为空串，`saved_secrets` 列出已存了值的凭据键——存下的凭据不回到前端。
   - `POST /api/settings/update` `{key: value, ...}`：只写给出的键，值须是该键类型的 JSON 值。`internal` 键、schema 以外的键、类型不符、空串的凭据、同步间隔小于 1、
     装不上的代理（手动模式缺主机或端口）都整批拒收回 400，什么也不写。成功时回与 GET 相同的形状；写了 `proxy_*` 就立即 `httputil.ConfigureProxyFromSettings`，
@@ -227,13 +227,21 @@
     RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。
     「翻译」（`toggleTranslation`，只对标题未判定为中文的文章，spec D21）点击时才用 `utils/bilingual.ts` 的 `textBlocks` 从清洗后的显示正文取块（没有可翻的文字就不请求、给出原因）（段落、列表项、小标题、引用、图注；`pre`、表格、公式里的不取），`POST /api/articles/{id}/translation`，整篇回来才切到对照；再点回原文、再点直接用已有译文。失败停在原文并显示原因，可再点重试。抓到全文后译文作废、回到原文。
     换文章后慢到的旧响应按序号丢弃，正文在翻译途中换了（抓到全文）也丢弃。
+  - `prefs`：Bionic Reading 开关（spec D22），创建时从 `GET /api/settings` 读 `bionic_reading`（读到之前用户已点过则以点的为准），切换时 `POST /api/settings/update` 只写这一个键；
+    保存失败本次照样生效并在 snackbar 提示。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
 - 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源徽标（`FeedBadge`，侧栏、列表行与详情共用）优先显示经 `/api/feeds/icon` 取来的源图标，没有 `iconUrl` 或图取不到时用按 ID 取色的字母徽标；取不到的地址各徽标共用记录，不反复请求。
   右键任一节点「全部标为已读」。侧栏没有底栏：立即同步与设置都在顶栏应用菜单里。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
 - 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / RSS 正文太短时建议先抓全文 / 失败原因 +「在浏览器打开」）、摘要框、正文；
-  「摘要 / 翻译（标题不是中文时；对照时为「原文」，请求中为「翻译中…」）/ 抓取全文（还没显示全文时）/ 在浏览器打开 / 标为未读（已读时）」在底部浮动条。对照时 `ArticleBody` 用 `interleave` 在同一份清洗后的 HTML 的同样的块里插入 `span.literss-tr`（`textContent` 写入，块尾，有嵌套块时在第一个嵌套块前），再经 `sanitizeArticleHtml`；译文淡色加左侧细线。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
+  底部浮动条（spec D15）是一排 36px 的方形图标按钮，依次为摘要、翻译（标题未判定为中文时）、Bionic Reading、抓取全文（还没显示全文时）、在浏览器打开，分隔线后是已读。
+  `ArticleDetail` 的 `buttons` 由 `detail` 与 `prefs` 的状态算出每个按钮的图标、文字、禁用与高亮：图标表示当前状态（已摘要是星加勾、对照中是上下分栏、Bionic Reading 开 / 关、未读是封着的信封、已读是拆开的信封），
+  进行中一律换成转圈的 `refresh` 并禁用，开着的高亮底色；文字写点击后会发生什么，同时作 `title` 与 `aria-label`，翻译与 Bionic Reading 带 `aria-pressed`。
+  对照时 `ArticleBody` 用 `interleave` 在同一份清洗后的 HTML 的同样的块里插入 `span.literss-tr`（`textContent` 写入，块尾，有嵌套块时在第一个嵌套块前），再经 `sanitizeArticleHtml`；译文淡色加左侧细线。
+  正文排版写死（spec D15），唯一的例外是 Bionic Reading（spec D22）：开着时 `ArticleBody` 在增强之后调 `utils/bionic.ts` 的 `applyBionic`，用 DOM API 把每个英文词的开头包进 `span.bionic-fix`（加粗长度照抄 text-vide fixation 1 档的词长查表；
+  汉字不分词；跳过 `pre`、`code`、公式、`h1`–`h6`、`b`/`strong` 与 `.literss-tr`）。开关一变正文根节点换 `key` 重建，异步增强按轮次作废，同一份 DOM 只加粗一次；摘要框、标题与列表不动。
+  正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
 - 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`（对照视图在清洗结果里插入纯文本译文后再清洗一次：多一轮序列化与解析，不让变异型 XSS 钻空子）。
   它先在 `DOMParser` 的惰性文档里把 `iframe`、`embed`、`object`、`video`、`audio` 换成「在浏览器打开嵌入内容」链接（只收 http(s)，没有就删），把 `data-src`/`data-original` 换进 `src`；
   再交 DOMPurify（HTML + MathML，禁 style/form 类标签与 style/id/name 属性），属性钩子让 URL 只收绝对 http(s)（链接另收 `mailto:`、图片另收 `data:image/*`；`srcset` 按浏览器的切法逐个候选检查，描述符只收 `100w`、`2x` 这种形状），
@@ -244,7 +252,7 @@
 - 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：固定大小的模态框（780×520，窗口小时收缩），左侧导航按 `SETTING_GROUPS` 依次为 FreshRSS、大模型、标题翻译、网络代理、应用、关于，
   右侧一次只显示一组（`v-show`，切换不丢草稿、测试结果与检查更新状态），底部常驻取消 / 保存。导航项用圆点标出有未保存改动（`dirtyGroups`）或有不合法值（`invalidGroups`，目前只有同步间隔）的分组，
   保存因不合法值被拒时跳到那一组并聚焦输入框。
-  打开时 `GET /api/settings` 作草稿，「保存」一次把所有分组里清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
+  打开时 `GET /api/settings` 作草稿，「保存」一次把所有分组里（`SETTING_KEYS`，即 `SETTING_GROUPS` 的键；`reader` 组的键由浮动条写，不在面板里）与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
   凭据不回显（`SecretField`，状态在 `settings.secretState`）：已存的显示不可编辑的掩码与「修改」「清除」，「修改」给空输入框并可取消，「清除」在保存前可撤销、保存时调 `POST /api/settings/secrets/clear`；没存过的是普通输入框，填了才提交；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
   手动代理才显示类型、地址与认证；「关于」显示 `GET /api/version`，「检查更新」调 `GET /api/update/check`：有新版本且 `in_app` 时显示「更新到 X」，
   点一次调 `POST /api/update/start`，之后每 500 毫秒轮询 `GET /api/update/status` 显示下载进度条与各步文字，失败时显示原因与「去发布页」；

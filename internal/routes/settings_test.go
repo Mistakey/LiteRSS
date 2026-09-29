@@ -83,6 +83,24 @@ func TestUpdateSettingsWritesTypedValues(t *testing.T) {
 	}
 }
 
+// The reader group (Bionic Reading, spec D22) is written by the article view,
+// not the panel, but goes through the same routes.
+func TestReaderSettingsReadAndWrite(t *testing.T) {
+	api := newTestAPI(t)
+	var got settings.View
+	api.getJSON(t, "/api/settings", &got)
+	if got.Settings["bionic_reading"] != false {
+		t.Fatalf("default bionic_reading = %v", got.Settings["bionic_reading"])
+	}
+	api.postJSON(t, "/api/settings/update", `{"bionic_reading": true}`, &got)
+	if api.stored(t)["bionic_reading"] != "true" || got.Settings["bionic_reading"] != true {
+		t.Fatalf("stored = %v, answer = %v", api.stored(t)["bionic_reading"], got.Settings["bionic_reading"])
+	}
+	if api.triggered != 0 {
+		t.Fatal("a reader setting started a sync")
+	}
+}
+
 // TestUpdateSettingsRejectsUnknownKeys refuses the whole write for a key
 // outside the panel's list, a value of the wrong type or an invalid proxy
 // (spec D10).

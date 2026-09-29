@@ -28,6 +28,7 @@ func (s Setting) Internal() bool {
 var settings = map[string]Setting{
 	"baidu_app_id":                {Type: TypeString, Category: "translation", Encrypted: false},
 	"baidu_secret_key":            {Type: TypeString, Category: "translation", Encrypted: true},
+	"bionic_reading":              {Type: TypeBool, Category: "reader", Encrypted: false},
 	"close_to_tray":               {Type: TypeBool, Category: "app", Encrypted: false},
 	"freshrss_api_password":       {Type: TypeString, Category: "freshrss", Encrypted: true},
 	"freshrss_auto_sync_interval": {Type: TypeInt, Category: "freshrss", Encrypted: false},

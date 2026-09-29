@@ -48,6 +48,26 @@ export const icons = {
   check: [path('M5 12l5 5L20 7')],
   checks: [path('M2 12l5 5L17 7'), path('M12 16l1 1L23 7')],
   warn: [path('M12 3l10 18H2z'), path('M12 10v5M12 18v.01')],
+  // 浮动条的状态图标（spec D15）：已摘要是星加勾，对照中是上原文下译文的分栏页
+  sparkCheck: [
+    path('M11 3l1.8 4.9L18 9.7l-5.2 1.8L11 16.5l-1.8-5L4 9.7l5.2-1.8z'),
+    path('M15 19l2 2 4.5-4.5'),
+  ],
+  bilingual: [
+    ['rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }],
+    path('M3 12h18'),
+    path('M7 7.5h10M7 16.5h6'),
+  ],
+  // Bionic Reading 关：三行细线；开：每行词首一块实心（spec D22）
+  bionicOff: [path('M3 7h18M3 12h18M3 17h16')],
+  bionic: [
+    ['rect', { x: '3', y: '5.5', width: '6', height: '3', rx: '1', fill: 'currentColor' }],
+    path('M12 7h9'),
+    ['rect', { x: '3', y: '10.5', width: '4', height: '3', rx: '1', fill: 'currentColor' }],
+    path('M10 12h11'),
+    ['rect', { x: '3', y: '15.5', width: '7', height: '3', rx: '1', fill: 'currentColor' }],
+    path('M13 17h6'),
+  ],
   // 顶栏的窗口按钮，仿 Windows 标题栏的细线字形
   winMin: [path('M3 12h18')],
   winMax: [['rect', { x: '3', y: '3', width: '18', height: '18' }]],

@@ -79,8 +79,11 @@ curl --noproxy "*" -X POST "http://127.0.0.1:1241/_fake/release?corrupt=1&rate=0
 - store 测试（`src/stores/*.test.ts`）守住：快照在视图内稳定（点开与批量已读只变灰，同步后不替换）、新条目只进横幅且点击才载入、
   范围与 `ts` 的取法、撤销调用后端令牌与 410 的处理、标题译文只请求一次；`App.test.ts` 对整页核对侧栏树与计数（侧栏没有底栏）、列表行形态、右键菜单、横幅与经顶栏应用菜单打开设置。
   `TitleBar.test.ts` 核对窗口按钮、拖动与双击（应用菜单按钮不算拖动区），以及应用菜单的两项、同步状态文案与同步中「立即同步」置灰。
-- `FakeBackend` 的 `content` 播种 RSS 正文，`fullTexts`、`summaries` 按 ID 排好抓全文与摘要的回应（缺省分别是 `no_link` 与「还没有配置大模型」），`translator` 按收到的块回全文翻译（可以返回 Promise 以观察「翻译中…」；缺省为「还没有配置大模型」）。
+- `FakeBackend` 的 `content` 播种 RSS 正文，`fullTexts`、`summaries` 按 ID 排好抓全文与摘要的回应（缺省分别是 `no_link` 与「还没有配置大模型」；也可以放 Promise 以观察进行中的状态），`translator` 按收到的块回全文翻译（可以返回 Promise 以观察「翻译中…」；缺省为「还没有配置大模型」）。
   `stores/detail.test.ts` 守住打开不抓全文、缓存全文直接显示、按钮抓取成功替换与失败保留正文、摘要随全文重做、太短时不能摘要、换文章丢弃旧响应，以及换文章或翻译途中抓到全文时丢弃慢到的译文；`ArticleDetail.test.ts` 核对抓全文按钮与提示、浮动条、链接外开、图片查看器，以及「翻译」的三次切换、中文文章没有按钮、翻译中与失败、抓到全文后回到原文。块的提取与对照插入在 `utils/bilingual.test.ts`（代码块、表格、公式不翻，译文按纯文本写入）。
+  浮动条只有图标，测试按按钮的类名（`summary`、`translate`、`bionic`、`fetch`、`ext`、`read`）找按钮，断言 `aria-label`、`aria-pressed`、禁用与图标（`iconOf` 按第一个图形的属性对照 `icons.ts`）。
+  Bionic Reading 的开关、正文重建与只加粗一次也在 `ArticleDetail.test.ts`：正文含代码时要等动态载入的增强完成才加粗，用 `vi.waitFor` 等、再多等一会儿确认没有第二次加粗；
+  词长查表（与 text-vide fixation 1 档一致）、词的切分与跳过的元素在 `utils/bionic.test.ts`，读写开关与保存失败在 `stores/prefs.test.ts`。
 - `FakeBackend` 的 `settings` 是已存设置（凭据按明文放，GET 时回空串并列进 `saved_secrets`，清单外的键与空串凭据写入回 400，清除走 `secrets/clear`），`tests` 排好两个测试连接的回应（缺省成功），`update` 是检查更新的回应，`updateSteps` 排好应用内更新依次报告的进度（`start` 回第一项，之后每次 `status` 前进一项并停在最后一项）。
   `SettingsModal.test.ts` 守住导航顺序与一次只显示一组、切换分组不丢草稿 / 测试结果 / 检查更新结果、保存一次提交所有分组的改动并在导航上标出改过与不合法的分组（同步间隔不合法时跳回 FreshRSS 组）、保存只提交清单内改过的键（已存凭据不回写）、密钥的掩码 / 修改 / 取消 / 清除与撤销 / 未保存各状态、测试连接的传参与成功 / 失败显示、拒收时不关闭，以及「更新到 X」只点一次、进度轮询、失败原因与发布页、打开时显示已有的更新进度。
 - 清洗器载荷矩阵在 `utils/sanitize.test.ts`：html-sanitize.md 第 1–4 节的载荷都不能留下事件属性、脚本类 URL 或嵌入元素，指向自身源与回环的地址被删，

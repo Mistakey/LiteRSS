@@ -112,6 +112,12 @@
       "category": "app",
       "encrypted": false
     },
+    "bionic_reading": {
+      "type": "bool",
+      "default": false,
+      "category": "reader",
+      "encrypted": false
+    },
     "window_x": {
       "type": "int",
       "default": 0,
