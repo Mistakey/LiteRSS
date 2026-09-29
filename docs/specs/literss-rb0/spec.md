@@ -167,7 +167,7 @@ source: "用户 2026-09-26 发起「重做并精简 MrRSS」；forge:wayfinder �
 
 ### D13: API 只为自己的前端设计，改状态只收非 GET，路由表测试是唯一真相
 
-- 路由清单：列表快照、按 ID 取卡片、正文、抓全文、标题翻译、摘要、全文翻译（D21）、单篇标已读/未读、按 ID 批量标已读、按流全部已读、撤销、未读计数、订阅树、
+- 路由清单：列表快照、按 ID 取卡片、正文、抓全文、标题翻译、摘要、全文翻译（D21）、单篇标已读/未读、按 ID 批量标已读、按流全部已读、撤销、未读计数、订阅树、源图标（D15）、
   设置读写、测试 FreshRSS 连接、测试模型连接、立即同步、同步状态长轮询、在浏览器打开、版本、检查更新、开始更新与更新状态（D20）。其余旧路由全部删除。
 - 会改状态的接口只收 POST/PUT/DELETE，GET 一律 405。列表摘录由后端抽成纯文本。
 - 删除 Swagger 与 mrrss-assistant Skill（mrrss-280.17），pitfall 18 退役；路由表的表驱动测试守住方法约定。
@@ -182,6 +182,9 @@ source: "用户 2026-09-26 发起「重做并精简 MrRSS」；forge:wayfinder �
 
 - 保留 Vue 3 + TypeScript + Vite + Vitest + Pinia；删除 Tailwind（改用原型的 CSS 变量 + scoped CSS）、vue-i18n（文案直写中文）、
   `@phosphor-icons/vue`、`@wailsio/runtime`、Cypress。主题只跟随系统。不加载任何外部资源。复用清单见 frontend.md。
+- 源图标（literss-rb0.40，用户 2026-09-29 选定只从 FreshRSS 取）：后端按订阅列表的 `iconUrl` 只向已配置的 FreshRSS 服务器取它自己缓存的
+  `f.php` 图标（直连、不走代理，不直连源站），落库缓存、`iconUrl` 变了才重取，经本地 `/api` 提供；取不到或只是 FreshRSS 的默认图标时
+  前端回落按 ID 取色的字母徽标。
 - 布局以 `layout-prototype/` 变体 B 为基础，按 mrrss-280.6 修改：三栏；侧栏顶部「未读 / 全部」分段切换，侧栏没有底栏；
   点顶栏的图标与「LiteRSS」弹出应用菜单（立即同步，右侧附同步状态；设置…），同步状态文案显示在顶栏名称右边
   （literss-rb0.35 原型选定 E3，用户 2026-09-28）；
