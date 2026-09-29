@@ -137,6 +137,7 @@ source: "用户 2026-09-26 发起「重做并精简 MrRSS」；forge:wayfinder �
 - 用户可见：`freshrss_server_url`、`freshrss_username`、`freshrss_api_password`、`freshrss_auto_sync_interval`、`baidu_app_id`、
   `baidu_secret_key`、`llm_endpoint`、`llm_model`、`llm_api_key`、`proxy_mode`、`proxy_type`、`proxy_host`、`proxy_port`、
   `proxy_username`、`proxy_password`、`update_check_enabled`、`close_to_tray`、`startup_on_boot`。内部：窗口 x、y、宽、高、是否最大化。
+  reader 分组：`bionic_reading`（D22）不在设置面板显示，但前端可读写；窗口那几个键前端读不到也写不进，不要把它归到那边（literss-rb0.39）。
   上次成功同步时间存 `meta`，不是设置。
 - 模型键用 `llm_*`，不用 `ai_*`：旧库 `settings` 里同名的 `ai_*` 遗留值从未生效。
 - 设置层拒收未知键：写入返回 400，加载时忽略并记日志。
@@ -289,7 +290,7 @@ source: "用户 2026-09-26 发起「重做并精简 MrRSS」；forge:wayfinder �
 - 范围：只作用于阅读区正文（`ArticleBody`），在清洗与公式、代码增强之后，由 DOM API 在文本节点上生成加粗标记，不经 HTML 解析；
   跳过代码、公式、小标题、原本就加粗的文字和对照译文。摘要框、标题、列表不动。
 - 开关：浮动条上的 Bionic Reading 按钮（D15），对所有文章生效，跨会话记住。状态存进 D10 的设置清单（布尔，默认 false），
-  不在设置面板显示，与窗口位置同类。不设档位或其他排版选项。
+  不在设置面板显示，但前端可读写，归 D10 的 reader 分组（不是窗口位置那类）。不设档位或其他排版选项。
 - 测试缝：前端 vitest 覆盖查表结果（给定词长的加粗长度与 text-vide 一致）、跳过的元素、中文与对照译文不变、开关后正文重建。
 
 ## Constraints
