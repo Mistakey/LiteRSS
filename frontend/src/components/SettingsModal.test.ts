@@ -265,15 +265,24 @@ describe('设置面板', () => {
     w.unmount();
   });
 
-  it('后端拒收时显示原因，面板不关', async () => {
+  it.each([
+    ['invalid settings: proxy mode "manual" needs a host and port', '设置没有保存：手动代理要填写地址和端口。'],
+    [
+      'invalid settings: invalid proxy URL: invalid port ":x" after host',
+      '设置没有保存：代理地址或端口无效，请检查后再保存。',
+    ],
+    [
+      'invalid settings: freshrss_auto_sync_interval must be at least 1',
+      '设置没有保存：同步间隔要是不小于 1 的整数分钟。',
+    ],
+    ['unknown setting keys: ai_model','设置没有保存：有设置值不被接受，请检查后再试。'],
+  ])('后端拒收时显示中文原因，面板不关：%s', async (body, shown) => {
     const w = await mounted();
     await w.find('[name=freshrss_username]').setValue('you');
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('invalid settings: proxy mode "manual" needs a host and port', { status: 400 })
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(body, { status: 400 }));
     await w.find('form').trigger('submit');
     await settle();
-    expect(w.find('.save-error').text()).toContain('设置没有保存');
+    expect(w.find('.save-error').text()).toBe(shown);
     expect(w.emitted('close')).toBeUndefined();
     w.unmount();
   });

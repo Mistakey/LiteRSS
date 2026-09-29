@@ -114,7 +114,7 @@ func TestUnknownFeedOrNoIconURLIsNoIcon(t *testing.T) {
 	}
 }
 
-// FreshRSS having no icon (its placeholder, or a refusal) is remembered for
+// FreshRSS having no icon (its placeholder, or a 404) is remembered for
 // NoIconRetry, then asked again.
 func TestNoIconIsRememberedThenRetried(t *testing.T) {
 	for name, answer := range map[string]error{
@@ -153,6 +153,19 @@ func TestUnavailableIsNotRemembered(t *testing.T) {
 	e.src.answer(png, nil)
 	if _, err := e.icon(t, "feed/1"); err != nil {
 		t.Errorf("Icon once FreshRSS answers = %v", err)
+	}
+
+	// A refusal that is not "no such icon" is a passing failure too.
+	for _, status := range []int{500, 502, 401, 403, 429} {
+		e.exec(t, `DELETE FROM feed_icons`)
+		e.src.answer(freshrss.Icon{}, &freshrss.APIError{Op: "favicon", StatusCode: status})
+		if _, err := e.icon(t, "feed/1"); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("Icon on %d = %v, want ErrUnavailable", status, err)
+		}
+		e.src.answer(png, nil)
+		if _, err := e.icon(t, "feed/1"); err != nil {
+			t.Errorf("Icon after a %d = %v, want FreshRSS asked again", status, err)
+		}
 	}
 
 	unconfigured := New(e.db.DB, func() (Source, error) { return nil, errors.New("not configured") })

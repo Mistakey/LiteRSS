@@ -21,7 +21,9 @@ import (
 
 // ErrInvalid marks a request the panel refuses: a key it does not edit, a
 // value of the wrong type or range, a proxy that cannot be installed.
-// *UnknownKeysError and *InvalidValueError match it too.
+// *UnknownKeysError and *InvalidValueError match it too. The panel shows the
+// refusals a user can cause in Chinese by matching their English text
+// (frontend stores/settings.ts); change one there too.
 var ErrInvalid = errors.New("invalid settings")
 
 // connectionTestTimeout bounds a connection test.

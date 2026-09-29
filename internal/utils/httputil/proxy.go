@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -36,6 +37,11 @@ func ProxyFor(mode, manualURL string) (ProxyResolver, error) {
 		}
 		parsed, err := url.Parse(manualURL)
 		if err != nil {
+			// *url.Error quotes the address, password included; keep only why.
+			var urlErr *url.Error
+			if errors.As(err, &urlErr) {
+				err = urlErr.Err
+			}
 			return nil, fmt.Errorf("invalid proxy URL: %w", err)
 		}
 		return http.ProxyURL(parsed), nil

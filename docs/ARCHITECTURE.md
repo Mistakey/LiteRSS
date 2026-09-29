@@ -152,7 +152,7 @@
     没有图标、FreshRSS 没配置或连不上都回不缓存的空 204（不用 404，免得每次启动控制台都报加载失败），前端据此回落字母徽标。
     图标只向已配置的 FreshRSS 取：`freshrss.Client.Icon` 只用 `iconUrl` 的查询串，请求 API 同级的 `f.php`（直连、不带会话），与 FreshRSS 占位图
     `themes/icons/default_favicon.ico` 字节相同、或不是位图（含 SVG）的都算没有图标。第一次请求时取，存进 `feed_icons`，`iconUrl` 变了才重取；
-    没有图标也记一行（空 `data`），`feedicon.NoIconRetry` 7 天后再问；连不上不记。同一个源的并发请求只取一次。
+    没有图标（含 `f.php` 回 404/410）也记一行（空 `data`），`feedicon.NoIconRetry` 7 天后再问；连不上或 FreshRSS 回其他错误状态（5xx、401/403/429）不记。同一个源的并发请求只取一次。
 - 已读动作（`routes/read.go`）经 `routes.Intents`（`*syncer.Service`）只写意图，推送器随后发给 FreshRSS（spec D6、D7）。请求体是 JSON，未知字段与类型不符回 400；已不在库里的 ID 静默忽略：
   - `POST /api/articles/{id}/read` `{read}`：单篇标已读 / 未读（连同同 URL 组），204，不给撤销令牌。
   - `POST /api/articles/read` `{ids}`：「此篇及以上 / 以下」，`ids` 是前端从快照取的范围；只对显示为未读的写意图。

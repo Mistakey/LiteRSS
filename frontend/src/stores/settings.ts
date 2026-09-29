@@ -77,9 +77,17 @@ function isSecret(key: Key): key is SecretKey {
   return (SECRET_KEYS as readonly Key[]).includes(key);
 }
 
+/** 后端拒收（400）的英文原因对应的中文；没列出的给通用说法。 */
+const REFUSALS: readonly [string, string][] = [
+  ['needs a host and port', '手动代理要填写地址和端口。'],
+  ['invalid proxy URL', '代理地址或端口无效，请检查后再保存。'],
+  ['freshrss_auto_sync_interval', '同步间隔要是不小于 1 的整数分钟。'],
+];
+
 function errorText(err: unknown) {
-  if (err instanceof ApiError && err.status === 400 && err.message) {
-    return `设置没有保存：${err.message}`;
+  if (err instanceof ApiError && err.status === 400) {
+    const known = REFUSALS.find(([en]) => err.message.includes(en));
+    return `设置没有保存：${known ? known[1] : '有设置值不被接受，请检查后再试。'}`;
   }
   if (err instanceof ApiError && err.status === 0) return '连不上 LiteRSS 后端，请稍后再试。';
   return '设置没有保存，请稍后再试。';

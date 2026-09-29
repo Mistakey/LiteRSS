@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -120,9 +121,8 @@ func (s *Service) fetch(ctx context.Context, streamID, iconURL string) (freshrss
 		return freshrss.Icon{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	icon, err := src.Icon(ctx, iconURL)
-	var apiErr *freshrss.APIError
 	switch {
-	case errors.Is(err, freshrss.ErrNoIcon), errors.As(err, &apiErr):
+	case errors.Is(err, freshrss.ErrNoIcon), isNotFound(err):
 		// Empty, not nil: data is NOT NULL.
 		icon, err = freshrss.Icon{Data: []byte{}}, ErrNoIcon
 	case err != nil:
@@ -140,4 +140,12 @@ func (s *Service) fetch(ctx context.Context, streamID, iconURL string) (freshrss
 		return freshrss.Icon{}, fmt.Errorf("keep feed icon: %w", dbErr)
 	}
 	return icon, err
+}
+
+// isNotFound reports a FreshRSS answer that there is no such icon; any other
+// refusal (a server error, rate limit or denied access) says nothing about it.
+func isNotFound(err error) bool {
+	var apiErr *freshrss.APIError
+	return errors.As(err, &apiErr) &&
+		(apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusGone)
 }

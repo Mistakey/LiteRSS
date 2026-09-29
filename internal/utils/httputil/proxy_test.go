@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,6 +88,25 @@ func TestConfigureProxyRejectsManualWithoutAnAddress(t *testing.T) {
 
 	if err := ConfigureProxy(ProxyModeManual, ""); err == nil {
 		t.Fatal("ConfigureProxy accepted manual mode with no address")
+	}
+}
+
+// TestProxyForSettingsErrorOmitsTheAddress: the error goes to logs and back to
+// the settings panel, and the address it failed on carries the password.
+func TestProxyForSettingsErrorOmitsTheAddress(t *testing.T) {
+	_, err := ProxyForSettings(map[string]string{
+		"proxy_mode":     ProxyModeManual,
+		"proxy_type":     "http",
+		"proxy_host":     "127.0.0.1",
+		"proxy_port":     "notaport",
+		"proxy_username": "kelch",
+		"proxy_password": "hunter2-secret",
+	})
+	if err == nil {
+		t.Fatal("an unparsable proxy address was accepted")
+	}
+	if strings.Contains(err.Error(), "hunter2-secret") || strings.Contains(err.Error(), "kelch") {
+		t.Fatalf("error carries the credentials: %q", err)
 	}
 }
 

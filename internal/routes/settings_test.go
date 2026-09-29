@@ -126,6 +126,21 @@ func TestUpdateSettingsRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+// TestUpdateSettingsRefusalOmitsTheProxyPassword: the 400 body is shown in
+// the panel, and the proxy address it was refused over carries the password.
+func TestUpdateSettingsRefusalOmitsTheProxyPassword(t *testing.T) {
+	api := newTestAPI(t)
+	rec := api.send(t, http.MethodPost, "/api/settings/update",
+		`{"proxy_mode": "manual", "proxy_host": "127.0.0.1", "proxy_port": "notaport",
+		  "proxy_username": "kelch", "proxy_password": "hunter2-secret"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "hunter2-secret") {
+		t.Fatalf("400 body carries the proxy password: %q", body)
+	}
+}
+
 // TestClearSecret deletes one stored credential: an empty string in an
 // update is refused, so keeping and clearing never look alike.
 func TestClearSecret(t *testing.T) {
