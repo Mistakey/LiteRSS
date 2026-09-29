@@ -42,7 +42,7 @@ func TestOpenCreatesLatestSchemaVersion(t *testing.T) {
 	want := []string{
 		"feeds", "tags", "feed_tags",
 		"articles", "article_contents", "fulltext_cache", "title_translations", "summaries",
-		"pending_read", "pending_mark_all", "meta", "settings",
+		"article_translations", "pending_read", "pending_mark_all", "meta", "settings",
 	}
 	for _, name := range want {
 		var n int
@@ -89,6 +89,7 @@ func TestDeletingArticleCascadesToLocalTables(t *testing.T) {
 		`INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (?, '<p>full</p>', 1700000100)`,
 		`INSERT INTO title_translations (item_id, translated_title) VALUES (?, '甲')`,
 		`INSERT INTO summaries (item_id, summary, created_at) VALUES (?, '摘要', 1700000200)`,
+		`INSERT INTO article_translations (item_id, source_hash, blocks, created_at) VALUES (?, 'h', '["甲"]', 1700000300)`,
 		`INSERT INTO pending_read (item_id, value, seq) VALUES (?, 1, 1)`,
 	}
 	for _, s := range stmts {
@@ -99,7 +100,7 @@ func TestDeletingArticleCascadesToLocalTables(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM articles WHERE item_id = ?`, id); err != nil {
 		t.Fatalf("delete article: %v", err)
 	}
-	for _, table := range []string{"article_contents", "fulltext_cache", "title_translations", "summaries", "pending_read"} {
+	for _, table := range []string{"article_contents", "fulltext_cache", "title_translations", "summaries", "article_translations", "pending_read"} {
 		var n int
 		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatalf("count %s: %v", table, err)

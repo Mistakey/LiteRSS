@@ -68,8 +68,9 @@ func ArticleCards(lib *library.Library) http.Handler {
 	})
 }
 
-// ArticleContent answers GET /api/articles/{id}/content with the RSS body,
-// untrusted HTML the frontend sanitizes before showing (spec D16).
+// ArticleContent answers GET /api/articles/{id}/content with {content,
+// fulltext}: the RSS body and the cached full text, untrusted HTML the
+// frontend sanitizes before showing (spec D16).
 func ArticleContent(lib *library.Library) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -77,12 +78,12 @@ func ArticleContent(lib *library.Library) http.Handler {
 			http.Error(w, "id must be an item id", http.StatusBadRequest)
 			return
 		}
-		content, err := lib.Content(r.Context(), id)
+		body, err := lib.Content(r.Context(), id)
 		if err != nil {
 			writeLibraryError(w, "content", err)
 			return
 		}
-		writeJSON(w, map[string]string{"content": content})
+		writeJSON(w, body)
 	})
 }
 

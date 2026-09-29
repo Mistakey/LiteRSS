@@ -4,6 +4,7 @@
 export interface SettingsData {
   baidu_app_id: string;
   baidu_secret_key: string;
+  bionic_reading: boolean;
   close_to_tray: boolean;
   freshrss_api_password: string;
   freshrss_auto_sync_interval: number;
@@ -25,6 +26,7 @@ export interface SettingsData {
 export const settingsDefaults: SettingsData = {
   baidu_app_id: '',
   baidu_secret_key: '',
+  bionic_reading: false,
   close_to_tray: true,
   freshrss_api_password: '',
   freshrss_auto_sync_interval: 30,

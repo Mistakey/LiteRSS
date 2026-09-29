@@ -189,22 +189,6 @@ func TestGetRejectsUnknownKey(t *testing.T) {
 	}
 }
 
-func TestUpdateTxCommitsWithTheCallersTransaction(t *testing.T) {
-	store, db, _ := openStore(t)
-	ctx := context.Background()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpdateTx(ctx, tx, map[string]string{"freshrss_username": "reader"}); err != nil {
-		t.Fatal(err)
-	}
-	tx.Rollback()
-	if got, _ := store.Get(ctx, "freshrss_username"); got != "" {
-		t.Errorf("a rolled-back UpdateTx left %q", got)
-	}
-}
-
 func TestCheck(t *testing.T) {
 	var unknown *UnknownKeysError
 	var invalid *InvalidValueError

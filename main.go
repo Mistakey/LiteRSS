@@ -23,10 +23,9 @@ import (
 	"LiteRSS/internal/database"
 	"LiteRSS/internal/desktopapi"
 	"LiteRSS/internal/enrich"
+	"LiteRSS/internal/feedicon"
 	"LiteRSS/internal/freshrss"
 	"LiteRSS/internal/identity"
-	"LiteRSS/internal/legacyimport"
-	"LiteRSS/internal/legacyprobe"
 	"LiteRSS/internal/library"
 	"LiteRSS/internal/middleware"
 	"LiteRSS/internal/routes"
@@ -88,16 +87,13 @@ func main() {
 	configureProxy(store)
 	autostart := applyAutostart(store)
 
-	syncService := syncer.New(db, freshrssRemote(store))
-	syncService.LegacyRunning = legacyprobe.Running
-	// The legacy library is imported before the first cycle; while the
-	// legacy MrRSS runs, cycles wait for it (spec D12).
-	importer := legacyImporter(id, db, store, dataDir)
-	syncScheduler := syncer.NewScheduler(importer.Gate(func(ctx context.Context) {
+	account := freshrssAccount(store)
+	syncService := syncer.New(db, func() (syncer.Remote, error) { return account() })
+	syncScheduler := syncer.NewScheduler(func(ctx context.Context) {
 		if _, err := syncService.RunCycle(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("Sync cycle failed: %v", err)
 		}
-	}, syncService.NoteLegacyRunning), syncInterval(store))
+	}, syncInterval(store))
 	syncCtx, stopSync := context.WithCancel(context.Background())
 	syncStopped := make(chan struct{})
 	go func() {
@@ -131,6 +127,7 @@ func main() {
 			Web: httputil.CreateWebScrapingClient(30 * time.Second),
 			API: outbound,
 		}),
+		Icons:    feedicon.New(db.DB, func() (feedicon.Source, error) { return account() }),
 		Settings: panel,
 		// Set below, once the application exists.
 		Browser: &systemBrowser,
@@ -324,29 +321,12 @@ func applyAutostart(store *settings.Store) *shell.Autostart {
 	return autostart
 }
 
-// legacyImporter looks for the legacy MrRSS library where the build
-// identity allows: development builds only take one named by
-// legacyimport.PathEnv.
-func legacyImporter(id identity.Identity, db *database.DB, store *settings.Store, dataDir string) *legacyimport.Importer {
-	exeDir := ""
-	if exePath, err := os.Executable(); err == nil {
-		exeDir = filepath.Dir(exePath)
-	}
-	configDir, _ := os.UserConfigDir()
-	return &legacyimport.Importer{
-		DB:            db,
-		Store:         store,
-		DataDir:       dataDir,
-		Candidates:    legacyimport.Candidates(os.Getenv, id.SearchesLegacyLibrary, configDir, exeDir, fileutil.IsPortableMode()),
-		LegacyRunning: legacyprobe.Running,
-	}
-}
-
-// freshrssRemote returns the sync service's client source: the account in the
-// settings, read at the start of every cycle and push.
-func freshrssRemote(store *settings.Store) func() (syncer.Remote, error) {
+// freshrssAccount returns the FreshRSS client source that sync and the feed
+// icons share: the account in the settings, read at the start of every cycle,
+// push and icon fetch.
+func freshrssAccount(store *settings.Store) func() (*freshrss.Client, error) {
 	var clients freshrss.Clients
-	return func() (syncer.Remote, error) {
+	return func() (*freshrss.Client, error) {
 		values, err := store.Load(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("read the FreshRSS account: %w", err)

@@ -68,7 +68,6 @@ export interface SyncState {
   last_sync_at: number;
   /** 上次失败的英文原因，成功后为空；界面文案由前端给。 */
   error: string;
-  legacy_running: boolean;
 }
 
 export interface Batch {
@@ -79,6 +78,12 @@ export interface Batch {
 export interface TitleTranslations {
   titles: { id: number; translated_title: string }[];
   message: string;
+}
+
+/** 文章的正文：RSS 正文与已缓存的全文，都是不可信 HTML，缺的为空串。 */
+export interface Body {
+  content: string;
+  fulltext: string;
 }
 
 export interface FullText {
@@ -95,6 +100,12 @@ export interface Summary {
   html: string;
   /** 中文说明：没有生成的原因，或摘要依据的不是全文。 */
   note: string;
+}
+
+/** 全文翻译：与送去的块一一对应的纯文本译文；没有译文时 blocks 为空，message 给中文原因。 */
+export interface Translation {
+  blocks: string[];
+  message: string;
 }
 
 export interface SettingsView {
@@ -174,6 +185,15 @@ async function postJSON<T>(path: string, body?: unknown): Promise<T> {
   return (await post(path, body)).json() as Promise<T>;
 }
 
+/**
+ * 源图标的地址：后端从 FreshRSS 的图标缓存取来（spec D15），没有 iconUrl 为空串。
+ * v 带上 iconUrl，图标换了就是新地址，不再用旧的浏览器缓存；取不到时后端回空的 204（不用 404，免得每次启动控制台都报加载失败），图解不出来，界面回落字母徽标。
+ */
+export function feedIconUrl(feed: Pick<Feed, 'id' | 'icon_url'>): string {
+  if (!feed.icon_url) return '';
+  return `/api/feeds/icon?${new URLSearchParams({ id: feed.id, v: feed.icon_url }).toString()}`;
+}
+
 /** 每次取卡片的上限（后端 library.MaxCards）。 */
 export const MAX_CARDS = 200;
 
@@ -197,10 +217,12 @@ export const api = {
   },
 
   /** RSS 正文原样，不可信 HTML；没有正文为空串。 */
-  content: async (id: number) =>
-    (await getJSON<{ content: string }>(`/api/articles/${id}/content`)).content,
+  content: (id: number) => getJSON<Body>(`/api/articles/${id}/content`),
   fullText: (id: number) => postJSON<FullText>(`/api/articles/${id}/fulltext`),
   summary: (id: number) => postJSON<Summary>(`/api/articles/${id}/summary`),
+  /** blocks 是阅读区显示的正文里要翻的块文字（utils/bilingual.ts 的 textBlocks）。 */
+  translation: (id: number, blocks: string[]) =>
+    postJSON<Translation>(`/api/articles/${id}/translation`, { blocks }),
 
   translateTitles: (ids: number[]) =>
     postJSON<TitleTranslations>('/api/articles/translate-titles', { ids }),
@@ -209,9 +231,11 @@ export const api = {
   },
 
   settings: () => getJSON<SettingsView>('/api/settings'),
-  /** 只写给出的键；回写整份对象会用空串清掉已存凭据。 */
+  /** 只写给出的键；凭据给空串会被拒收，清除凭据用 clearSecret。 */
   updateSettings: (changes: Partial<SettingsData>) =>
     postJSON<SettingsView>('/api/settings/update', changes),
+  clearSecret: (key: keyof SettingsData) =>
+    postJSON<SettingsView>('/api/settings/secrets/clear', { key }),
   /** 省略的字段后端取已存值，所以没改的凭据不传。 */
   testFreshRSS: (form: Partial<SettingsData>) =>
     postJSON<ConnectionTest>('/api/settings/freshrss/test', form),

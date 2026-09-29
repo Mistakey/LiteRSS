@@ -4,7 +4,7 @@
 
 ## Schema
 
-每个键一项，文件里按设置面板的分组排列（freshrss → llm → translation → network → app → internal），缩进 2 空格；改动时保持这个顺序，
+每个键一项，文件里按设置面板的分组排列（freshrss → llm → translation → network → app → reader → internal），缩进 2 空格；改动时保持这个顺序，
 生成物才按键名排序。
 
 ```json
@@ -20,7 +20,7 @@
 | --- | --- |
 | `type` | `string`、`int` 或 `bool`；存库时都是字符串，写入时按类型校验（`bool` 只收 `true` / `false`，`int` 须能被 `strconv.Atoi` 解析） |
 | `default` | 默认值，类型须与 `type` 一致 |
-| `category` | 面板分组；`internal` 表示只由后端写（窗口位置与大小），不进前端生成物 |
+| `category` | 面板分组；`reader` 是阅读区自己读写、不在面板显示的偏好（`bionic_reading`，浮动条的 Bionic Reading 开关，spec D22），面板的键清单是 `stores/settings.ts` 的 `SETTING_GROUPS`，reader 分组的键列在同文件的 `READER_KEYS`，新键要加进其中之一（`stores/settings.test.ts` 核对两者合起来恰好是生成的全部键）；`internal` 表示只由后端写（窗口位置与大小），不进前端生成物 |
 | `encrypted` | 凭据为 `true`，只能用在 `string` 上 |
 
 模型配置的键是 `llm_*`，不是 `ai_*`（pitfall 27）。上次成功同步时间这类记录存库的 `meta` 表，不是设置。
@@ -54,10 +54,11 @@ schema 与生成物不同步。改了 schema 之后按 `.forge/config.md` 跑 Go
 
 ## HTTP 接口
 
-前端经 `GET /api/settings` 与 `POST /api/settings/update` 读写，规则在 `settings.Panel`（形状见 [Architecture](ARCHITECTURE.md) 的 API 路由一节）。与 `Store` 不同的地方：
+前端（设置面板与 `stores/prefs.ts`）经 `GET /api/settings` 与 `POST /api/settings/update` 读写，规则在 `settings.Panel`（形状见 [Architecture](ARCHITECTURE.md) 的 API 路由一节）。与 `Store` 不同的地方：
 
 - 值按 schema 类型以 JSON 字符串、布尔或整数收发，对应生成的 `SettingsData`；`internal` 键既不返回也不接受写入（400）。
-- 凭据不回显：读出时为空串，另有 `saved_secrets` 列出已存值的键。面板只提交用户改过的键，没动的凭据不传；传空串表示清除。
+- 凭据不回显：读出时为空串，另有 `saved_secrets` 列出已存值的键。面板只提交用户改过的键，没动的凭据不传。
+  `POST /api/settings/update` 拒收空串的凭据（400），清除只经 `POST /api/settings/secrets/clear` `{key}`（`settings.Panel.ClearSecret`），「不改」与「清空」不会混淆。
 - 写入 `proxy_*` 前先确认代理装得上，写后立即生效；写入 `freshrss_*` 后触发一次同步。
 
 ## 加密字段
@@ -65,6 +66,5 @@ schema 与生成物不同步。改了 schema 之后按 `.forge/config.md` 跑 Go
 `encrypted: true` 的键由 `Store` 写入前用 `crypto.Encrypt` 加密、读出时解密，调用方拿到的总是明文，空值存为空。
 
 - Windows：DPAPI，当前用户范围，密文为 `dpapi:` + base64 的 DPAPI blob；别的用户或别的机器打不开。
-- macOS：沿用 MrRSS 的方案（主机名等派生 PBKDF2 密钥，AES-256-GCM，前缀 `MrRSS-v1:`）。
+- macOS：主机名等派生 PBKDF2 密钥，AES-256-GCM，前缀 `MrRSS-v1:`（沿用最初写入的前缀，已存的值才读得出）。
 - 存值解密失败（库被拷到另一台机器或另一个用户下）时按空值返回并记日志，由用户重填。
-- `crypto.DecryptLegacy` 只读旧 MrRSS 格式，留给旧库导入：解密后再经 `Store` 按当前平台方案重新加密。

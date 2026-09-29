@@ -17,23 +17,27 @@ import (
 	"LiteRSS/internal/browser"
 	"LiteRSS/internal/database"
 	"LiteRSS/internal/enrich"
+	"LiteRSS/internal/feedicon"
 	"LiteRSS/internal/library"
 	"LiteRSS/internal/settings"
 	"LiteRSS/internal/syncer"
 )
 
 type testAPI struct {
-	db        *database.DB
-	lib       *library.Library
-	svc       *syncer.Service
-	enrich    *enrich.Service
-	handler   http.Handler
-	triggered int
-	store     *settings.Store
-	opened    []string
-	updates   Updater
-	window    fakeWindow
-	autostart []bool
+	db     *database.DB
+	lib    *library.Library
+	svc    *syncer.Service
+	enrich *enrich.Service
+	icons  *feedicon.Service
+	// iconSource stands in for FreshRSS's favicon cache.
+	iconSource fakeIconSource
+	handler    http.Handler
+	triggered  int
+	store      *settings.Store
+	opened     []string
+	updates    Updater
+	window     fakeWindow
+	autostart  []bool
 	// autostartErr is what the system answers a change to startup_on_boot.
 	autostartErr error
 }
@@ -49,6 +53,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	t.Cleanup(svc.Close)
 	api := &testAPI{db: db, lib: library.New(db.DB), svc: svc, store: settings.New(db.DB),
 		enrich: enrich.New(db.DB, noSettings{}, enrich.Clients{Web: &http.Client{}, API: &http.Client{}})}
+	api.icons = feedicon.New(db.DB, func() (feedicon.Source, error) { return &api.iconSource, nil })
 	api.handler = Handler(api.deps())
 	return api
 }
@@ -69,6 +74,7 @@ func (a *testAPI) deps() Deps {
 		Library: a.lib,
 		Intents: a.svc,
 		Enrich:  a.enrich,
+		Icons:   a.icons,
 
 		Settings: a.panel(),
 		Browser:  browser.New(func(u string) error { a.opened = append(a.opened, u); return nil }),
@@ -143,6 +149,7 @@ func TestRouteTable(t *testing.T) {
 		"POST /api/sync/run",
 		"POST /api/articles/{id}/read", "POST /api/articles/read", "POST /api/streams/read", "POST /api/undo",
 		"POST /api/articles/{id}/fulltext", "POST /api/articles/translate-titles", "POST /api/articles/{id}/summary",
+		"POST /api/articles/{id}/translation",
 		"POST /api/settings/update", "POST /api/settings/freshrss/test", "POST /api/settings/llm/test",
 		"POST /api/browser/open", "POST /api/update/start",
 	} {
@@ -294,10 +301,11 @@ func TestArticleContent(t *testing.T) {
 	api := newTestAPI(t)
 	api.exec(t, `INSERT INTO articles (item_id, stream_id, published_at) VALUES (100, 'feed/1', 1)`)
 	api.exec(t, `INSERT INTO article_contents (item_id, content) VALUES (100, '<p>body</p>')`)
+	api.exec(t, `INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (100, '<p>full</p>', 1)`)
 
 	var got map[string]string
 	api.getJSON(t, "/api/articles/100/content", &got)
-	if got["content"] != "<p>body</p>" {
+	if got["content"] != "<p>body</p>" || got["fulltext"] != "<p>full</p>" {
 		t.Fatalf("content = %v", got)
 	}
 	if rec := api.do(t, http.MethodGet, "/api/articles/300/content"); rec.Code != http.StatusNotFound {

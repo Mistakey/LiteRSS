@@ -8,6 +8,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowReactive } from 'vue';
 import {
   api,
+  feedIconUrl,
   MAX_CARDS,
   READING_LIST,
   type Card,
@@ -34,6 +35,8 @@ export const useReader = defineStore('reader', () => {
   const tree = ref<Tree>({ categories: [], feeds: [] });
   const counts = ref<Counts>({ total: 0, feeds: {}, tags: {} });
   const loading = ref(false);
+  /** 未读视图里读到零未读也保留的项：用户点选的源或分类，选别的项或切换视图后放下。 */
+  const kept = ref<string | null>(null);
 
   // 每次进入视图加一；慢到的旧响应据此丢弃。
   let epoch = 0;
@@ -56,14 +59,42 @@ export const useReader = defineStore('reader', () => {
     if (s === READING_LIST) return '全部订阅';
     const cat = tree.value.categories.find((c) => c.id === s);
     if (cat) return cat.label;
-    const all = [...tree.value.feeds, ...tree.value.categories.flatMap((c) => c.feeds)];
-    return all.find((f) => f.id === s)?.title || '未知订阅源';
+    return feedsById.value.get(s)?.title || '未知订阅源';
+  }
+
+  const feedsById = computed(
+    () =>
+      new Map(
+        [...tree.value.feeds, ...tree.value.categories.flatMap((c) => c.feeds)].map((f) => [
+          f.id,
+          f,
+        ])
+      )
+  );
+
+  /** 源图标地址，没有为空串；FeedBadge 取不到图时回落字母徽标。 */
+  function iconFor(s: string): string {
+    const f = feedsById.value.get(s);
+    return f ? feedIconUrl(f) : '';
   }
 
   function unreadIn(s: string): number {
     if (s === READING_LIST) return counts.value.total;
     return counts.value.tags[s] ?? counts.value.feeds[s] ?? 0;
   }
+
+  /** 侧栏显示的树：未读视图只列有未读的源与还有源可列的分类，另加 kept；全部视图原样。 */
+  const sidebarTree = computed<Tree>(() => {
+    if (view.value !== 'unread') return tree.value;
+    const shows = (id: string) => id === kept.value || unreadIn(id) > 0;
+    return {
+      categories: tree.value.categories.flatMap((c) => {
+        const feeds = c.feeds.filter((f) => shows(f.id));
+        return feeds.length || c.id === kept.value ? [{ ...c, feeds }] : [];
+      }),
+      feeds: tree.value.feeds.filter((f) => shows(f.id)),
+    };
+  });
 
   /** 组件触发的动作失败时给一句提示，不留下未处理的拒绝。 */
   async function guarded(what: string, run: () => Promise<void>) {
@@ -106,12 +137,14 @@ export const useReader = defineStore('reader', () => {
 
   async function setView(v: View) {
     view.value = v;
+    kept.value = null;
     selectedId.value = null;
     await guarded('载入列表', enter);
   }
 
   async function setStream(s: string) {
     stream.value = s;
+    kept.value = s;
     selectedId.value = null;
     await guarded('载入列表', enter);
   }
@@ -287,12 +320,14 @@ export const useReader = defineStore('reader', () => {
     cards,
     selectedId,
     tree,
+    sidebarTree,
     counts,
     loading,
     rows,
     hasMore,
     newCount,
     streamName,
+    iconFor,
     unreadIn,
     init,
     setView,

@@ -1,6 +1,7 @@
 /**
  * 设置面板的表单（spec D10）：载入一份设置作为草稿，保存时只提交清单内改过的键。
- * 凭据从不回显：草稿里凭据为空表示不改，「清除」才提交空串；测试连接同样只传填了或清除了的凭据。
+ * 凭据从不回显：已保存的显示为掩码，「修改」后填的值才提交，「清除」保存时经 clearSecret 删除（可撤销）；
+ * 测试连接同样只传填了或清除了的凭据。
  */
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, shallowRef } from 'vue';
@@ -9,10 +10,14 @@ import { settingsDefaults, type SettingsData } from '../types/settings.generated
 
 type Key = keyof SettingsData;
 
-/** 面板能写的键；生成的默认值只含 schema 里非内部的键。 */
-export const SETTING_KEYS = Object.keys(settingsDefaults) as Key[];
+export type SecretKey =
+  | 'freshrss_api_password'
+  | 'llm_api_key'
+  | 'baidu_secret_key'
+  | 'proxy_username'
+  | 'proxy_password';
 
-export const SECRET_KEYS: readonly Key[] = [
+export const SECRET_KEYS: readonly SecretKey[] = [
   'freshrss_api_password',
   'llm_api_key',
   'baidu_secret_key',
@@ -29,16 +34,60 @@ const MODEL_FORM: readonly Key[] = ['llm_endpoint', 'llm_model', 'llm_api_key'];
 
 export type TestName = 'freshrss' | 'model';
 
+export type GroupId = 'freshrss' | 'llm' | 'translation' | 'proxy' | 'app' | 'about';
+
+/** 面板左侧导航的分组，按显示顺序；面板里每个键恰好属于一组（「关于」没有键）。 */
+export const SETTING_GROUPS: readonly { id: GroupId; label: string; keys: readonly Key[] }[] = [
+  {
+    id: 'freshrss',
+    label: 'FreshRSS',
+    keys: [...FRESHRSS_FORM, 'freshrss_auto_sync_interval'],
+  },
+  { id: 'llm', label: '大模型', keys: MODEL_FORM },
+  { id: 'translation', label: '标题翻译', keys: ['baidu_app_id', 'baidu_secret_key'] },
+  {
+    id: 'proxy',
+    label: '网络代理',
+    keys: [
+      'proxy_mode',
+      'proxy_type',
+      'proxy_host',
+      'proxy_port',
+      'proxy_username',
+      'proxy_password',
+    ],
+  },
+  { id: 'app', label: '应用', keys: ['close_to_tray', 'startup_on_boot', 'update_check_enabled'] },
+  { id: 'about', label: '关于', keys: [] },
+];
+
+/** 面板能写的键。 */
+export const SETTING_KEYS: readonly Key[] = SETTING_GROUPS.flatMap((g) => g.keys);
+
+/** schema 里 reader 分组的键：阅读区自己读写（stores/prefs），不在面板里。其余生成的键都要在 SETTING_GROUPS 里。 */
+export const READER_KEYS: readonly Key[] = ['bionic_reading'];
+
+/** saved：已保存，显示掩码；editing：已保存、正在填新值；cleared：保存时清除；empty：没保存过。 */
+export type SecretState = 'saved' | 'editing' | 'cleared' | 'empty';
+
 /** 测试进行中为 running，结束后是后端的结果。 */
 export type TestState = { running: true } | ({ running: false } & ConnectionTest);
 
-function isSecret(key: Key) {
-  return SECRET_KEYS.includes(key);
+function isSecret(key: Key): key is SecretKey {
+  return (SECRET_KEYS as readonly Key[]).includes(key);
 }
 
+/** 后端拒收（400）的英文原因对应的中文；没列出的给通用说法。 */
+const REFUSALS: readonly [string, string][] = [
+  ['needs a host and port', '手动代理要填写地址和端口。'],
+  ['invalid proxy URL', '代理地址或端口无效，请检查后再保存。'],
+  ['freshrss_auto_sync_interval', '同步间隔要是不小于 1 的整数分钟。'],
+];
+
 function errorText(err: unknown) {
-  if (err instanceof ApiError && err.status === 400 && err.message) {
-    return `设置没有保存：${err.message}`;
+  if (err instanceof ApiError && err.status === 400) {
+    const known = REFUSALS.find(([en]) => err.message.includes(en));
+    return `设置没有保存：${known ? known[1] : '有设置值不被接受，请检查后再试。'}`;
   }
   if (err instanceof ApiError && err.status === 0) return '连不上 LiteRSS 后端，请稍后再试。';
   return '设置没有保存，请稍后再试。';
@@ -49,6 +98,8 @@ export const useSettings = defineStore('settings', () => {
   const draft = reactive<SettingsData>({ ...settingsDefaults });
   /** 用户点了「清除」的已存凭据。 */
   const cleared = reactive(new Set<Key>());
+  /** 用户点了「修改」的已存凭据。 */
+  const editing = reactive(new Set<Key>());
   const loadError = ref('');
   const saving = ref(false);
   const saveError = ref('');
@@ -58,6 +109,7 @@ export const useSettings = defineStore('settings', () => {
     loaded.value = view;
     Object.assign(draft, view.settings);
     cleared.clear();
+    editing.clear();
   }
 
   async function load() {
@@ -73,22 +125,42 @@ export const useSettings = defineStore('settings', () => {
     }
   }
 
-  function saved(key: Key) {
-    return !cleared.has(key) && !!loaded.value?.saved_secrets.includes(key);
+  function secretState(key: Key): SecretState {
+    if (cleared.has(key)) return 'cleared';
+    if (!loaded.value?.saved_secrets.includes(key)) return 'empty';
+    return editing.has(key) ? 'editing' : 'saved';
   }
 
+  function setDraft(key: Key, value: string) {
+    (draft as Record<Key, unknown>)[key] = value;
+  }
+
+  /** 修改已保存的凭据：给一个空输入框，取消即恢复。 */
+  function editSecret(key: Key) {
+    editing.add(key);
+    setDraft(key, '');
+  }
+
+  function cancelEdit(key: Key) {
+    editing.delete(key);
+    setDraft(key, '');
+  }
+
+  /** 清除已保存的凭据：保存时才删，之前可以撤销。 */
   function clearSecret(key: Key) {
+    editing.delete(key);
     cleared.add(key);
-    (draft as Record<Key, unknown>)[key] = '';
+    setDraft(key, '');
   }
 
-  /** 一个键的待提交值；undefined 表示不改。 */
+  function undoClear(key: Key) {
+    cleared.delete(key);
+  }
+
+  /** 一个键的待提交值；undefined 表示不改。凭据只提交填了的值，清除另走 clearSecret。 */
   function pending(key: Key): SettingsData[Key] | undefined {
     const value = draft[key];
-    if (isSecret(key)) {
-      if (value !== '') return value;
-      return cleared.has(key) ? '' : undefined;
-    }
+    if (isSecret(key)) return value !== '' && !cleared.has(key) ? value : undefined;
     return value === loaded.value?.settings[key] ? undefined : value;
   }
 
@@ -106,7 +178,23 @@ export const useSettings = defineStore('settings', () => {
       Number.isInteger(draft.freshrss_auto_sync_interval) && draft.freshrss_auto_sync_interval >= 1
   );
 
-  const dirty = computed(() => Object.keys(changes.value).length > 0);
+  const dirty = computed(() => Object.keys(changes.value).length > 0 || cleared.size > 0);
+
+  /** 有没保存的改动的分组。 */
+  const dirtyGroups = computed(() => {
+    const out = new Set<GroupId>();
+    for (const g of SETTING_GROUPS) {
+      if (g.keys.some((k) => k in changes.value || cleared.has(k))) out.add(g.id);
+    }
+    return out;
+  });
+
+  /** 有不合法的值、保存会被拒的分组；保存报错时面板跳到第一个。 */
+  const invalidGroups = computed(() => {
+    const out = new Set<GroupId>();
+    if (!intervalValid.value) out.add('freshrss');
+    return out;
+  });
 
   /** 保存改过的键；成功返回 true，失败把原因放进 saveError。 */
   async function save() {
@@ -118,7 +206,11 @@ export const useSettings = defineStore('settings', () => {
     saving.value = true;
     saveError.value = '';
     try {
-      reset(await api.updateSettings(changes.value));
+      // 先写改动再清除：改动被拒收时什么也不删。两步都幂等，失败后再点保存会重做。
+      let view: SettingsView | null = null;
+      if (Object.keys(changes.value).length) view = await api.updateSettings(changes.value);
+      for (const key of [...cleared]) view = await api.clearSecret(key);
+      if (view) reset(view);
       return true;
     } catch (err) {
       saveError.value = errorText(err);
@@ -133,7 +225,7 @@ export const useSettings = defineStore('settings', () => {
     const form: Partial<Record<Key, SettingsData[Key]>> = {};
     for (const key of name === 'freshrss' ? FRESHRSS_FORM : MODEL_FORM) {
       if (isSecret(key)) {
-        const v = pending(key);
+        const v = cleared.has(key) ? '' : pending(key);
         if (v !== undefined) form[key] = v;
       } else {
         form[key] = draft[key];
@@ -159,10 +251,15 @@ export const useSettings = defineStore('settings', () => {
     tests,
     changes,
     dirty,
+    dirtyGroups,
+    invalidGroups,
     intervalValid,
     load,
-    saved,
+    secretState,
+    editSecret,
+    cancelEdit,
     clearSecret,
+    undoClear,
     save,
     test,
   };

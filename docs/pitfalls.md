@@ -16,12 +16,10 @@
 | [24](#pitfall-24) | Vite 开发代理只改写 5173 的 `Origin` |
 | [25](#pitfall-25) | AdGuard 会改写 chrome.exe 与 msedge.exe 的回环流量 |
 | [26](#pitfall-26) | `INSERT OR REPLACE` 会级联删掉文章的本地数据 |
-| [27](#pitfall-27) | 模型设置用 `llm_*`，旧库的 `ai_*` 同名键从未生效 |
 | [28](#pitfall-28) | FreshRSS 续页 `c` 是包含上界，且无条件丢掉第一条 |
 | [29](#pitfall-29) | FreshRSS 的 `edit-tag` 对任何 `i` 都回 `OK` |
 | [30](#pitfall-30) | `mark-all-as-read` 的 `ts` 与条目 ID 比较，是抓取时间 |
 | [31](#pitfall-31) | 长轮询不能有更短的 `WriteTimeout`，`Shutdown` 不会唤醒它 |
-| [32](#pitfall-32) | 旧版互斥量名由已安装的旧二进制决定 |
 | [33](#pitfall-33) | 最小化窗口的位置是占位值 -32000，按缩放会变成 -21333 等 |
 | [34](#pitfall-34) | 本机 npm 认为同步的 lockfile，CI 的 `npm ci` 可能拒收 |
 
@@ -43,7 +41,7 @@
 
 ## Pitfall 12
 
-**标题译文有行即「已判定」，不等于「已翻译」**：检测认定标题已是中文时，`title_translations` 存回的是原标题。没有行是唯一的「未判定」状态，清除译文就是删行；空值由表上的 `CHECK` 拒收，不能用来表示未判定。把「译文等于标题」当成「从未翻译」的代码会在每次渲染时重新请求——旧版反复重发标题就是这个循环。同步从不写这张表；旧库导入要原样搬运等于原标题的值（spec D12），搬成空或丢掉会让这些标题重新请求百度。反过来，**只有真的判定过才写行**：`enrich.Service.TranslateTitles` 在百度未配置或出错时不写这些条目（保持未判定，`message` 说明原因），若把失败写成原标题，英文标题会被永久当成「已判定中文」、再也不翻译；百度原样返回的译文才存原标题。前端的两个谓词：还要不要请求——`translated_title` 为空且本会话没请求过（`stores/reader.ts` 的 `translate`，失败的不重试，等下次启动）；显示什么——有译文用译文、否则原标题，译文等于原标题时才算中文并显示摘录（`utils/format.ts` 的 `displayTitle`、`isChinese`）。不要把「译文等于标题」当成还要翻译。
+**标题译文有行即「已判定」，不等于「已翻译」**：检测认定标题已是中文时，`title_translations` 存回的是原标题。没有行是唯一的「未判定」状态，清除译文就是删行；空值由表上的 `CHECK` 拒收，不能用来表示未判定。把「译文等于标题」当成「从未翻译」的代码会在每次渲染时重新请求——旧版反复重发标题就是这个循环。同步从不写这张表。反过来，**只有真的判定过才写行**：`enrich.Service.TranslateTitles` 在百度未配置或出错时不写这些条目（保持未判定，`message` 说明原因），若把失败写成原标题，英文标题会被永久当成「已判定中文」、再也不翻译；百度原样返回的译文才存原标题。前端的两个谓词：还要不要请求——`translated_title` 为空且本会话没请求过（`stores/reader.ts` 的 `translate`，失败的不重试，等下次启动）；显示什么——有译文用译文、否则原标题，译文等于原标题时才算中文并显示摘录（`utils/format.ts` 的 `displayTitle`、`isChinese`）。不要把「译文等于标题」当成还要翻译。
 
 ## Pitfall 17
 
@@ -84,13 +82,6 @@ WebView2（`msedgewebview2.exe`）未被过滤。不要为了取证去改用户�
 
 **`INSERT OR REPLACE` 会级联删掉文章的本地数据**：`REPLACE` 冲突策略是先删旧行再插新行，而本地库每个连接都开着 `foreign_keys`，删行会触发 `ON DELETE CASCADE`。实测（2026-09-27，modernc.org/sqlite v1.56.0）：对已有摘要的文章 `INSERT OR REPLACE INTO articles` 后，`summaries` 里那一行没了；正文、全文、标题译文与 `pending_read` 同理，丢意图还会把用户刚做的已读悄悄吞掉。拉取写 `articles`（以及 `feeds`、`tags`）一律用 `INSERT ... ON CONFLICT(主键) DO UPDATE SET ...`，只更新服务端所有的列。
 
-## Pitfall 27
-
-**模型设置的键是 `llm_endpoint` / `llm_model` / `llm_api_key`，不是 `ai_*`**：旧库 `settings` 表里有 `ai_endpoint`、`ai_model`、`ai_api_key`，
-值是 `https://api.openai.com/...`、`gpt-4o-mini` 这类早已不用的遗留值；旧版实际生效的模型配置在 `ai_profiles` 表里。新 schema 若沿用 `ai_*`，
-旧库导入按白名单搬设置时就会把这些遗留值当成用户配置搬过来。旧库导入从 `ai_profiles` 按旧解析链取一条写入 `llm_*`（spec D12），
-从不读 `settings` 里的 `ai_*`；`internal/settings` 读到 schema 以外的键只记日志、不返回。
-
 ## Pitfall 28
 
 **FreshRSS 的续页 `c` 是上一页最后一个条目 ID，服务端把它当包含上界，多取一条再无条件丢掉第一条**（`greader.php` 的 `streamContentsItemsIds`、
@@ -118,20 +109,12 @@ WebView2（`msedgewebview2.exe`）未被过滤。不要为了取证去改用户�
 所以长轮询同时等 `syncer.Service` 的关闭信号，`main.go` 必须先 `syncService.Close()` 再关 desktopapi（`TestClosingTheServiceLetsShutdownFinishAtOnce`）；
 这也覆盖 Wails 资源通道上的长轮询。不要改成在 `Shutdown` 里取消所有请求的 context：那会连带取消退出瞬间正在写的已读意图。
 
-## Pitfall 32
-
-**旧版在运行的判据是它的单实例互斥量，名字由用户已安装的旧二进制决定，不由本仓库决定**：Wails v3 在 Windows 上建
-`"wails-app-" + UniqueID + "-sim"`（`single_instance_windows.go`，beta.8 与 beta.26 相同），旧版 UniqueID 是 `com.mrrss.app`，
-所以是 `wails-app-com.mrrss.app-sim`，位于会话本地命名空间。升级本仓库的 Wails 或改自己的 UniqueID 都不改变它；只有用户装的旧版变了才要改。
-`legacyprobe` 只用 `OpenMutex(SYNCHRONIZE)` 打开再关掉，从不 `CreateMutex`：建出这个互斥量会让之后启动的旧版以为自己是第二个实例而退出。
-2026-09-27 实测：用户的 v1.3.28 在运行时开发实例的同步状态为 `legacy_running: true`，同步照常完成。
-
 ## Pitfall 33
 
 **Windows 把最小化窗口放在占位位置 (-32000, -32000)，读成逻辑像素时还会按显示缩放变小**：150% 缩放下是 -21333，200% 下是 -16000。
-旧版在最小化状态退出时把这个占位位置当窗口位置存进了 `window_x` / `window_y`（用户真实库就是 -21333），下次启动窗口落在屏幕外。
+把这个占位位置当窗口位置存进 `window_x` / `window_y`（旧版就这样存下了 -21333），下次启动窗口会落在屏幕外。
 所以只比较 -32000 不够。`settings.MinimizedWindowPos` 把任一坐标 ≤ -10000 视为占位值：真实的多显示器排布到不了这么远（两块 4K 屏左侧也只有 -3840），
-而 -32000 要到 320% 缩放才越过这条线。旧库导入遇到它时 x、y 两项都丢，让壳居中显示；壳集成保存与恢复窗口位置时也不保存、不采用它（spec D4）。
+而 -32000 要到 320% 缩放才越过这条线。壳保存与恢复窗口位置时不保存、不采用它（spec D4）。
 
 ## Pitfall 34
 

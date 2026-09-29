@@ -15,6 +15,7 @@ import (
 type SettingsPanel interface {
 	View(ctx context.Context) (settings.View, error)
 	Update(ctx context.Context, in map[string]json.RawMessage) (settings.View, error)
+	ClearSecret(ctx context.Context, key string) (settings.View, error)
 	TestFreshRSS(ctx context.Context, form map[string]string) (settings.Test, error)
 	TestModel(ctx context.Context, form map[string]string) (settings.Test, error)
 }
@@ -46,6 +47,26 @@ func UpdateSettings(panel SettingsPanel) http.Handler {
 		view, err := panel.Update(r.Context(), body)
 		if err != nil {
 			writeSettingsError(w, "update settings", err)
+			return
+		}
+		writeJSON(w, view)
+	})
+}
+
+// ClearSecret answers POST /api/settings/secrets/clear with {key}, a
+// credential to delete, by deleting it and answering the settings as they
+// now are. An update refuses an empty credential, so clearing is only this.
+func ClearSecret(panel SettingsPanel) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Key string `json:"key"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		view, err := panel.ClearSecret(r.Context(), body.Key)
+		if err != nil {
+			writeSettingsError(w, "clear secret", err)
 			return
 		}
 		writeJSON(w, view)

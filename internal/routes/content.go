@@ -70,6 +70,34 @@ func Summarize(svc *enrich.Service) http.Handler {
 	})
 }
 
+// TranslateArticle answers POST /api/articles/{id}/translation with {"blocks"}, the
+// text blocks of the body the reader shows, by their Chinese: {blocks,
+// message}, one plain-text block per source block in order. blocks is empty
+// when there is no translation and message says why in Chinese (spec D21).
+func TranslateArticle(svc *enrich.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := pathID(w, r)
+		if !ok {
+			return
+		}
+		var body struct {
+			Blocks []string `json:"blocks"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		tr, err := svc.Translate(r.Context(), id, body.Blocks)
+		if err != nil {
+			writeLibraryError(w, "translation", err)
+			return
+		}
+		if tr.Blocks == nil {
+			tr.Blocks = []string{}
+		}
+		writeJSON(w, tr)
+	})
+}
+
 // pathID reads the {id} path value; on failure it answers 400.
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

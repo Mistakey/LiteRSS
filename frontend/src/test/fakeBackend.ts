@@ -10,6 +10,7 @@ import {
   type FullText,
   type Summary,
   type SyncState,
+  type Translation,
   type Tree,
   type UpdateCheck,
   type UpdateStatus,
@@ -51,10 +52,14 @@ export class FakeBackend {
   /** 下一次 translate-titles 回应的译文（按 ID），没有的留在未判定。 */
   translations: Record<number, string> = {};
   syncStates: SyncState[] = [];
-  /** 抓全文的结果（按 ID）；没有的回 no_link。 */
-  fullTexts: Record<number, FullText> = {};
-  /** 摘要的结果（按 ID）；没有的回「还没有配置摘要模型」。 */
-  summaries: Record<number, Summary> = {};
+  /** 抓全文的结果（按 ID）；没有的回 no_link。可以是 Promise，让测试控制何时完成。 */
+  fullTexts: Record<number, FullText | Promise<FullText>> = {};
+  /** 已缓存的全文（按 ID），随正文一起返回；抓全文成功时写入。 */
+  cachedFullTexts: Record<number, string> = {};
+  /** 摘要的结果（按 ID）；没有的回「还没有配置大模型」。可以是 Promise。 */
+  summaries: Record<number, Summary | Promise<Summary>> = {};
+  /** 全文翻译的回应；缺省回「还没有配置大模型」。可以返回 Promise，让测试控制何时完成。 */
+  translator: ((id: number, blocks: string[]) => Translation | Promise<Translation>) | null = null;
   /** 已存的设置，凭据按明文存；GET 时凭据回空串、列进 saved_secrets。 */
   settings: SettingsData = { ...settingsDefaults };
   /** 两个测试连接的回应；缺省为成功。 */
@@ -164,21 +169,32 @@ export class FakeBackend {
     const content = url.pathname.match(/^\/api\/articles\/(\d+)\/content$/);
     if (method === 'GET' && content) {
       const a = this.byId(Number(content[1]));
-      return a ? json({ content: a.content ?? '' }) : new Response('not found', { status: 404 });
+      return a
+        ? json({ content: a.content ?? '', fulltext: this.cachedFullTexts[a.id] ?? '' })
+        : new Response('not found', { status: 404 });
     }
     const action = url.pathname.match(/^\/api\/articles\/(\d+)\/(fulltext|summary)$/);
     if (method === 'POST' && action) {
       const id = Number(action[1]);
       if (action[2] === 'fulltext') {
-        return json(
-          this.fullTexts[id] ?? {
-            outcome: 'no_link',
-            content: '',
-            message: '这篇文章没有可抓取的原文链接。',
-          }
-        );
+        const ft = (await this.fullTexts[id]) ?? {
+          outcome: 'no_link',
+          content: '',
+          message: '这篇文章没有可抓取的原文链接。',
+        };
+        if (ft.outcome === 'success') this.cachedFullTexts[id] = ft.content;
+        return json(ft);
       }
-      return json(this.summaries[id] ?? { html: '', note: '还没有配置摘要模型，请在设置里填写。' });
+      return json(
+        (await this.summaries[id]) ?? { html: '', note: '还没有配置大模型，请在设置里填写。' }
+      );
+    }
+    const translation = url.pathname.match(/^\/api\/articles\/(\d+)\/translation$/);
+    if (method === 'POST' && translation) {
+      const { blocks } = body as { blocks: string[] };
+      if (!this.translator)
+        return json({ blocks: [], message: '还没有配置大模型，请在设置里填写。' });
+      return json(await this.translator(Number(translation[1]), blocks));
     }
     if (route === 'POST /api/articles/translate-titles') {
       const titles = (body as { ids: number[] }).ids.flatMap((id) => {
@@ -194,7 +210,16 @@ export class FakeBackend {
       const changes = body as Record<string, unknown>;
       const unknown = Object.keys(changes).filter((k) => !(k in settingsDefaults));
       if (unknown.length) return new Response(`unknown settings: ${unknown}`, { status: 400 });
+      const emptied = SECRETS.filter((k) => changes[k] === '');
+      if (emptied.length) return new Response(`clear ${emptied} explicitly`, { status: 400 });
       Object.assign(this.settings, changes);
+      return json(this.settingsView());
+    }
+    if (route === 'POST /api/settings/secrets/clear') {
+      const { key } = body as { key: keyof SettingsData };
+      if (!SECRETS.includes(key))
+        return new Response(`${key} is not a credential`, { status: 400 });
+      (this.settings as Record<string, unknown>)[key] = '';
       return json(this.settingsView());
     }
     const test = url.pathname.match(/^\/api\/settings\/(freshrss|llm)\/test$/);

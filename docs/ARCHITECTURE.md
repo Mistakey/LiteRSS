@@ -6,9 +6,9 @@
 ## 现状
 
 旧的同步、数据库访问、HTTP handler 与路由、AI profile、AI 翻译、内容缓存和整个前端已经删除。
-主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
+主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树、源图标）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
 
-- 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、首次启动时导入旧 MrRSS 库、启动同步调度，并在回环地址上启动 desktopapi。
+- 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、启动同步调度，并在回环地址上启动 desktopapi。
 - 前端：Vue 3 + TypeScript + Vite + Vitest + Pinia，三栏与设置面板都已接上 API（见下「前端」）。
 - 通信：前端只通过相对路径 `/api/...` 访问后端，不依赖 Wails 绑定，所以同一份构建能在 Wails 窗口和浏览器取证通道里运行。
 
@@ -22,7 +22,7 @@
   数据目录下的 `webview2\`，不落到默认的 `%APPDATA%\<exe 文件名>`。
 - 日志写入数据目录下的 `logs\debug.log`；启动时把上一次的日志移到 `debug.log.1`，只保留一份。
 - 本地库是数据目录下的 `literss.db`，打不开时退出。同步服务的 FreshRSS 账号在每个周期开始时从设置读取，三项有一项为空时周期以「FreshRSS 未配置」失败；
-  同一配置共用一个 `freshrss.Clients` 客户端。调度器的每一轮先经 `legacyimport.Importer.Gate`：旧库导入落定之前不跑周期（见下「旧库导入」）。退出时先停调度并等在跑的周期结束，再 `syncer.Service.Close`（唤醒长轮询），最后关 desktopapi 与库（pitfall 31）。
+  同一配置共用一个 `freshrss.Clients` 客户端。退出时先停调度并等在跑的周期结束，再 `syncer.Service.Close`（唤醒长轮询），最后关 desktopapi 与库（pitfall 31）。
 - `internal/webui.Site` 把 `/api/` 前缀交给 API mux（`routes.Handler`，挂 `routes.Table` 的全部路由），其余交给 `frontend/dist` 的静态 handler；
   Wails 资源通道经 `webui.WailsMiddleware` 挂它，`/wails` 前缀留给 Wails 运行时。
 - CSP：静态 handler（`webui.Static`）是唯一下发 `Content-Security-Policy` 响应头的地方，两条通道因此总是同一份策略（spec D16）；
@@ -71,15 +71,16 @@
 - 版本化迁移：`PRAGMA user_version` 是库的 schema 版本，新库从 1 起步。`migrations[i]` 把版本从 i 升到 i+1，每步与版本号在同一个事务里提交，
   失败时 schema 与版本号都不动；库版本高于本构建认识的版本时拒绝打开。
 - 列级权威由表表达（spec D6、D9）：
-  - FreshRSS 所有、只由同步拉取写入（例外：旧库一次性导入，spec D12；推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
+  - FreshRSS 所有、只由同步拉取写入（例外：推送成功后 `server_read` 按推送的值写入）：`feeds`（主键 stream ID `feed/…`）、`tags`（主键 `user/-/label/…`）、`feed_tags`，以及
     `articles` 的全部列——条目 ID（十进制，主键）、stream ID、URL、标题、图片、`published_at`、`server_read` 镜像。
-  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）是本地数据，同步从不写。
+  - `article_contents` 存拉取带来的 RSS 正文；`fulltext_cache`、`title_translations`、`summaries`（摘要 Markdown 与它的说明 `note`）、`article_translations`（全文译文，schema 版本 3）是本地数据，同步从不写；
+    `feed_icons`（源图标缓存，schema 版本 4）也是本地数据，随源 `ON DELETE CASCADE` 删除。
     正文与全文分表，互不覆盖。
   - 用户意图：`pending_read`（每条目一行）与 `pending_mark_all`；显示状态 = 有意图取意图，否则取 `server_read`。
-  - `meta` 是键值表，存上次成功同步时间、旧库导入状态这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
-- 以 `item_id` 为键的正文、全文、译文、摘要、`pending_read` 都 `ON DELETE CASCADE` 到 `articles`，删文章即连带删除。
+  - `meta` 是键值表，存上次成功同步时间这类非设置的记录；`settings` 是设置的键值表，只经 `internal/settings` 读写。
+- 以 `item_id` 为键的正文、全文、标题译文、全文译文、摘要、`pending_read` 都 `ON DELETE CASCADE` 到 `articles`，删文章即连带删除。
   因此更新这些行只能 `ON CONFLICT DO UPDATE`，`INSERT OR REPLACE` 会先删行再级联清掉子表（pitfall 26）。
-  `articles.stream_id` 不设外键：旧库导入的文章先于第一次同步重建 `feeds` 落库。
+  `articles.stream_id` 不设外键。
 - 时间：条目 ID 就是 FreshRSS 的抓取时间（微秒，`database.FetchedAt`），不另存抓取时间列。`published_at` 是 Unix 秒，只用于显示与排序，
   入库前经 `database.NormalizePublishedAt`：缺失、≤ 0、解析失败或晚于抓取时间 1 天以上时取抓取时间，其余原样保留。
 - `title_translations` 有行即「已判定」，没有行是唯一的未判定状态，空译文被 `CHECK` 拒收（pitfall 12）。
@@ -109,17 +110,14 @@
   `Trigger` 给立即同步、托盘与从睡眠恢复用，`TriggerOnFocus` 给窗口获得焦点用，距上一轮开始不足 `FocusGap`（1 分钟）时跳过。
   周期只在 `Run` 的 goroutine 上串行跑，跑的时候来的多次触发并成跑完后的一轮；任何一轮都重新计间隔。触发来源见上「壳」。
 - 同步状态（`state.go`，spec D14）：`State` 含 `rev`、运行中、上一轮新增条目数、待推送数（`pending_read` 与 `pending_mark_all` 行数之和）、
-  上次成功时间、错误、`legacy_running`。任何字段变化 `rev` 加一并唤醒等待者；`rev` 从 1 起，所以首次请求 `since=0` 立即返回。
-  变化点：周期开始（运行中、旧版探测结果）、周期结束（新增数，失败的周期也写入它补进的条目数；待推送数；成功时清错误并记时间，失败只记错误）、
+  上次成功时间、错误。任何字段变化 `rev` 加一并唤醒等待者；`rev` 从 1 起，所以首次请求 `since=0` 立即返回。
+  变化点：周期开始（运行中）、周期结束（新增数，失败的周期也写入它补进的条目数；待推送数；成功时清错误并记时间，失败只记错误）、
   意图写入后与定时推送后（只有待推送数变了才加 `rev`；计数与发布在同一把锁里，慢的计数不会盖掉新的）。
   `WaitState(ctx, since)` 在 `since` 与当前 `rev` 不同时立即返回（包括客户端带着上次运行的 `rev`），否则等变化、`ctx` 结束或 `Close`。
-- 旧版探测（spec D18）：周期开始时调 `Service.LegacyRunning`（`main.go` 接 `legacyprobe.Running`），结果只写进状态，不暂停同步。
-  `internal/legacyprobe` 在 Windows 上以 `SYNCHRONIZE` 只读打开旧版 Wails 单实例互斥量 `wails-app-com.mrrss.app-sim`，
-  打得开或拒绝访问都算在运行（pitfall 32）；其他平台恒为 false。
-- 一个周期依次为：探测旧版 → 推送意图 → 拉取 → 清理。推送失败不拦拉取（拉取不碰意图），但周期以失败返回、不记 `last_sync_at`，并按退避安排重试。拉取与清理：
+- 一个周期依次为：推送意图 → 拉取 → 清理。推送失败不拦拉取（拉取不碰意图），但周期以失败返回、不记 `last_sync_at`，并按退避安排重试。拉取与清理：
   1. `subscription/list` 与 `tag/list`：`feeds`、`tags` 以 upsert 只写服务端所有的列，`feed_tags` 按订阅重写；随后删掉服务端已没有的源与标签、
      这些源的文章（连带正文、全文、译文、摘要、`pending_read`）以及指向已消失流的 `pending_mark_all`。
-     返回 0 个订阅而本地有源或有文章（旧库导入只带文章）时视为服务端异常，整步不写并记日志。
+     返回 0 个订阅而本地有源或有文章时视为服务端异常，整步不写并记日志。
   2. 未读 ID 集：`reading-list` 排除 `read`，`n` 一次取足（10 万）；超量才续页，接受 pitfall 28 的边角（被丢的一条本周期记为已读，下周期纠正）。
   3. 高水位扫描：从最新往旧读 `reading-list` 的 ID（同样一次取足），到「本地最大条目 ID − 10 分钟」或「现在 − 90 天」为止。
   4. 未读集与扫描结果里本地没有的条目，按旧到新每批 100 条经 `stream/items/contents` 补齐，不论已读与否；写 `articles` 与 `article_contents`，
@@ -127,25 +125,6 @@
   5. `server_read` 镜像：在未读集里为 0，其余本地文章为 1。拉取从不写服务端，也不碰意图表。
   6. 清理：抓取时间早于 90 天（`syncer.Retention`）、`server_read = 1` 且没有 `pending_read` 行的文章连带删除，有删除时排空 `incremental_vacuum`。
 - 周期成功后在 `meta` 的 `last_sync_at` 记 Unix 秒。`RunCycle` 返回新增、因取消订阅删除、因保留期清理的文章数。
-
-## 旧库导入（`internal/legacyimport`，spec D12）
-
-- 一次性、只读：`meta` 的 `legacy_import` 有记录（`done` / `skipped` / `failed`，JSON 形式的 `legacyimport.Report`：来源、时间、各类计数、
-  要重填的凭据键）就再也不找旧库。没有记录时：本地已有文章、订阅或 `last_sync_at` 记 `skipped`（只填一个从没同步过的库）；
-  候选路径都不存在记 `skipped`；找到旧库而旧版在运行（`legacyprobe.Running`）时推迟，什么也不写；否则导入，之后任何失败记 `failed` 与原因。
-- 候选路径（`legacyimport.Candidates`）：环境变量 `LITERSS_LEGACY_DB` 指定的文件；正式身份（`identity.SearchesLegacyLibrary`）再查
-  用户配置目录下的 `MrRSS\rss.db`（Windows 与 macOS），以及便携版 exe 旁的 `data\rss.db`。开发构建只认环境变量，碰不到用户的旧库。
-- 读取：以 `file:…?mode=ro` 的 URI 只读打开，按表结构识别（`articles`、`settings`、`article_contents`、`feeds` 与两列 FreshRSS ID），
-  `VACUUM INTO` 到数据目录下的临时快照，再从快照读，导完删除。旧库处于 WAL 时只读连接仍可能在旧目录留下空的 `-wal` / `-shm`，主库字节不变。
-- 写入在新库的一个事务里，连同 `done` 记录一起提交：有条目 ID 且所属订阅有 stream ID 的文章（其余丢弃并计数；`published_at` 解析 Go 时间串与
-  SQLite 日期串后照常 `NormalizePublishedAt`）、RSS 正文与全文分表、非空译文原样（含等于原标题的「已判定」值）、摘要；
-  未同步且未被旧版放弃的队列行按（条目，read）取最后一条转 `pending_read`，`seq` 按这些行的先后从 `intent_seq` 续取，星标丢弃；
-  设置按 D10 白名单，凭据带 `MrRSS-v1:` 时经 `crypto.DecryptLegacy` 解开（解不开只丢该项、进 `Refill`），没有标记的是旧版未读过的明文，
-  窗口坐标为最小化占位值时两项都丢（pitfall 33），新 schema 不接受的值逐项丢弃，经 `settings.Store.UpdateTx` 重新加密写入；
-  模型配置按旧解析链（`ai_summary_profile_id` → `is_default` → 最小 id）从 `ai_profiles` 取一条写 `llm_*`。
-- 顺序：`Gate` 包住调度器的周期函数，每一轮先 `Run`：推迟时调 `syncer.Service.NoteLegacyRunning`（状态里 `legacy_running` 为真）并跳过这一轮，
-  下一次间隔或触发再试；落定（导入、跳过或失败都算）后才跑周期，所以第一个周期先推送导入的意图再拉取。
-  导入报告目前只在 `meta` 与日志里，界面提示由 API 与前端的步骤接上。
 
 ## API 路由（`internal/routes`，spec D13）
 
@@ -162,13 +141,18 @@
     `view` 缺省 `unread`（显示为未读），`stream` 缺省全部订阅，也可以是 `feed/<n>` 或标签。成员由前端持有，之后已读的只变灰，同步来的新条目只经重新取快照进入列表；
     「此篇及以上 / 以下」从这份完整列表取 ID，所以覆盖界面还没加载的部分。`newest` 是成员里最大的条目 ID（最新抓取时间），即该视图全部已读的 `ts`（spec D7），空视图为 0。
   - `GET /api/articles/cards?ids=<id>,...`：按给定顺序返回卡片（每次至多 `library.MaxCards` 200 个），已不在库里的 ID 跳过（保留期清理）。
-    卡片含源标题（旧库导入、首次同步前为空）、URL、标题、标题译文（空为未判定，等于原标题为「已判定中文」）、缩略图、`published_at`、显示状态，
+    卡片含源标题（源已不在 `feeds` 时为空）、URL、标题、标题译文（空为未判定，等于原标题为「已判定中文」）、缩略图、`published_at`、显示状态，
     以及后端从 RSS 正文抽的纯文本摘录 `excerpt`（`library.Excerpt`：去标签、解实体、跳过脚本样式等不可见元素、合并空白、最多 200 字符），前端用插值渲染。
-  - `GET /api/articles/{id}/content`：`{content}`，RSS 正文原样（不可信 HTML，由前端清洗，spec D16）；没有正文为空串。
+  - `GET /api/articles/{id}/content`：`{content, fulltext}`，RSS 正文与已缓存的全文原样（不可信 HTML，由前端清洗，spec D16）；没有的为空串。
   - `GET /api/unread-counts`：`{total, feeds, tags}`，按显示状态计未读，同 URL 组在每个范围内计一次（URL 为空的条目各计一次）；没有未读的源与标签不出现。
     三者在一条语句里算出，彼此一致。
   - `GET /api/subscriptions`：`{categories: [{id, label, feeds}], feeds}`，标签按名、源按标题排序（不区分 ASCII 大小写）；
     属于多个标签的源在每个标签下各出现一次，`feeds` 是不属于任何标签的源。
+  - `GET /api/feeds/icon?id=<stream id>&v=<iconUrl>`：源图标（spec D15，`internal/feedicon`），`v` 只作缓存版本，图标带 `Cache-Control: private, max-age=86400`；
+    没有图标、FreshRSS 没配置或连不上都回不缓存的空 204（不用 404，免得每次启动控制台都报加载失败），前端据此回落字母徽标。
+    图标只向已配置的 FreshRSS 取：`freshrss.Client.Icon` 只用 `iconUrl` 的查询串，请求 API 同级的 `f.php`（直连、不带会话），与 FreshRSS 占位图
+    `themes/icons/default_favicon.ico` 字节相同、或不是位图（含 SVG）的都算没有图标。第一次请求时取，存进 `feed_icons`，`iconUrl` 变了才重取；
+    没有图标（含 `f.php` 回 404/410）也记一行（空 `data`），`feedicon.NoIconRetry` 7 天后再问；连不上或 FreshRSS 回其他错误状态（5xx、401/403/429）不记。同一个源的并发请求只取一次。
 - 已读动作（`routes/read.go`）经 `routes.Intents`（`*syncer.Service`）只写意图，推送器随后发给 FreshRSS（spec D6、D7）。请求体是 JSON，未知字段与类型不符回 400；已不在库里的 ID 静默忽略：
   - `POST /api/articles/{id}/read` `{read}`：单篇标已读 / 未读（连同同 URL 组），204，不给撤销令牌。
   - `POST /api/articles/read` `{ids}`：「此篇及以上 / 以下」，`ids` 是前端从快照取的范围；只对显示为未读的写意图。
@@ -178,13 +162,15 @@
 - 内容动作（`routes/content.go`，经 `internal/enrich`，见下节）都用 POST：它们写本地缓存表，并替用户出网。失败原因以中文文案随 200 返回，界面直接显示；只有找不到文章（404）、参数不合法（400）与程序错误（500）走状态码：
   - `POST /api/articles/{id}/fulltext`：`{outcome, content, message}`，`outcome` 为 `success` 或一种失败（含 `no_link`：文章没有可抓的 `http(s)` 链接），`message` 是失败的中文原因。
   - `POST /api/articles/translate-titles` `{ids}`（至多 `library.MaxCards` 个）：`{titles: [{id, translated_title}], message}`，只含已判定的标题；留在未判定的不出现，`message` 说明原因（百度未配置或出错）。
-  - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（例如基于 RSS 正文）。
+  - `POST /api/articles/{id}/summary`：`{html, note}`，`html` 是渲染好的摘要（仍由前端清洗），为空表示没有生成、`note` 给原因；有摘要时 `note` 说明它不是基于全文（「摘要基于 RSS 正文。」）。
+  - `POST /api/articles/{id}/translation` `{blocks}`：全文翻译（spec D21），`blocks` 是阅读区所显示正文里要翻的块文字（1 到 3000 块，不能有空块）；回 `{blocks, message}`，`blocks` 是逐块对应的纯文本中文，为空表示没有译文、`message` 给原因（模型未配置、调用失败、块数对不上）。
 - 设置（`routes/settings.go` 只解析与回应，规则在 `settings.Panel`，spec D10）：
-  - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含面板编辑的全部键（不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
+  - `GET /api/settings`：`{settings, saved_secrets}`。`settings` 含前端可写的全部键（面板各组与 `reader` 组的 Bionic Reading 开关，不含 `internal`），按 schema 类型给 JSON 字符串、布尔或整数，形状同前端生成的 `SettingsData`；
     凭据（`encrypted`）一律为空串，`saved_secrets` 列出已存了值的凭据键——存下的凭据不回到前端。
-  - `POST /api/settings/update` `{key: value, ...}`：只写给出的键，值须是该键类型的 JSON 值。`internal` 键、schema 以外的键、类型不符、同步间隔小于 1、
+  - `POST /api/settings/update` `{key: value, ...}`：只写给出的键，值须是该键类型的 JSON 值。`internal` 键、schema 以外的键、类型不符、空串的凭据、同步间隔小于 1、
     装不上的代理（手动模式缺主机或端口）都整批拒收回 400，什么也不写。成功时回与 GET 相同的形状；写了 `proxy_*` 就立即 `httputil.ConfigureProxyFromSettings`，
     写了 `freshrss_*`（账号或同步间隔）就触发一次同步。写入不用 `PUT /api/settings`：同一路径已有 GET，路由表测试要求改状态路由的 GET 回 405。
+  - `POST /api/settings/secrets/clear` `{key}`：删除一个已存凭据（非凭据键回 400），回与 GET 相同的形状，副作用同写该键（`proxy_*` 重装代理、`freshrss_*` 触发同步）。
   - `POST /api/settings/freshrss/test` `{freshrss_server_url?, freshrss_username?, freshrss_api_password?}` 与 `POST /api/settings/llm/test`
     `{llm_endpoint?, llm_model?, llm_api_key?}`：`{ok, message}`，`message` 是中文结论。省略的字段取已存的值（面板拿不到已存的凭据，不改就不传），
     其他字段回 400。FreshRSS 用一个新客户端登录一次（局域网，不走代理，pitfall 9）；模型经共用出网客户端发一个极短请求（`summary.Model.Check`，失败原因按 `ai.ErrUnauthorized`、`ai.ErrModelNotFound` 区分）。各限时 20 秒。拒收一律匹配 `settings.ErrInvalid`，handler 据此回 400。
@@ -197,29 +183,32 @@
 - 窗口按钮（`routes/window.go`，spec D4）：`POST /api/window/minimise`、`/api/window/maximise`（最大化，已最大化时还原）、`/api/window/close`
   （与点 × 相同，按 `close_to_tray` 藏到托盘或退出），都回 204；由壳实现的 `routes.Window` 执行。浏览器取证通道里前端不显示这些按钮。
 
-## 内容动作（`internal/enrich`，spec D11）
+## 内容动作（`internal/enrich`，spec D11、D21）
 
-- `enrich.Service` 每次调用都从设置读百度与模型配置，改了即生效。出网客户端由 `main.go` 注入：网页用 `httputil.CreateWebScrapingClient`（30 秒），百度与模型共用一个 `httputil.CreateHTTPClient`（90 秒）（pitfall 8）。三张结果表都用「文章仍在才写」的 upsert，保留期清理与之并发时不会写出孤行。
-- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。同一文章并发的抓取合并为一次（点开自动抓全文与随后点「摘要」共用它），抓取不随某个请求取消，由客户端超时兜底。
+- `enrich.Service` 每次调用都从设置读百度与模型配置，改了即生效。出网客户端由 `main.go` 注入：网页用 `httputil.CreateWebScrapingClient`（30 秒），百度与模型共用一个 `httputil.CreateHTTPClient`（90 秒）（pitfall 8）。四张结果表都用「文章仍在才写」的 upsert，保留期清理与之并发时不会写出孤行。
+- 抓全文：`fulltext_cache` 有行直接返回；否则抓文章链接，经 `fulltext.Extract` 判出结论，只缓存成功（pitfall 21），失败的中文文案来自 `fulltext.Outcome.Message`。只有阅读区的「抓取全文」按钮调它（spec D11）。成功时在同一个事务里写缓存并删掉该文章的摘要与全文译文（它们基于 RSS 正文），下次按全文重做。同一文章并发的抓取合并为一次，抓取不随某个请求取消，由客户端超时兜底。
 - 标题翻译：同一时间只跑一次，已有行的原样返回；标题（空白合并为一行）经 `translation.LanguageDetector.ShouldTranslate` 判为中文的存原标题（「已判定中文」，pitfall 11、12）；其余按行拼成至多 `translation.BaiduMaxQueryBytes` 的请求交给百度，请求之间隔 1.1 秒（标准版每秒一次）。百度原样返回的存原标题；百度未配置或出错时这些条目不写行，保持未判定。
-- 摘要：`summaries` 存模型返回的 Markdown，每次返回时经 `summary.RenderHTML` 渲染（gomarkdown 的 `SkipHTML` 丢弃原始 HTML，`Safelink` 只留安全链接）。新摘要先取全文（与上面同一次抓取）；全文不可用或可见字符不足 300 时改用 RSS 正文并在 `note` 注明，两者都不足时不调模型、只给原因。输入经 `htmltext.Text` 抽成纯文本、至多 2 万字符；提示词写死、输出固定中文（`internal/summary`）。模型未配置（端点或模型为空）或调用失败也以 `note` 说明。摘要与它的 `note` 一起入库（`summaries.note`，schema 版本 2），再次打开照样说明；模型调用随请求取消，已生成的摘要即使请求已结束也写入。
+- 摘要：`summaries` 存模型返回的 Markdown，每次返回时经 `summary.RenderHTML` 渲染（gomarkdown 的 `SkipHTML` 丢弃原始 HTML，`Safelink` 只留安全链接）。新摘要只用阅读区显示的正文、从不抓取：`fulltext_cache` 有行用全文，否则用 RSS 正文并在 `note` 注明；可见字符不足 300 时不调模型、只给原因（RSS 正文太短时提示可以先抓全文）。基于 RSS 正文的摘要写库时若全文已在这期间缓存则不写，免得旧摘要盖过全文。输入经 `htmltext.Text` 抽成纯文本、至多 2 万字符；提示词写死、输出固定中文（`internal/summary`）。模型未配置（端点或模型为空）或调用失败也以 `note` 说明。摘要与它的 `note` 一起入库（`summaries.note`，schema 版本 2），再次打开照样说明；模型调用随请求取消，已生成的摘要即使请求已结束也写入。
+- 全文翻译（`enrich/translate.go`）：块由前端从阅读区显示的正文里取（`utils/bilingual.ts`），后端不解析 HTML。`article_translations` 每篇一行，`source_hash` 是送来的块数组（JSON）的 SHA-256，只有同样的块才命中缓存，所以正文变了会重翻并覆盖。未命中时按至多 3000 字符、40 块一批（单块超长时独占一批），同时至多 3 批交给模型（`summary.Model.Translate`：写死的提示词，要模型回与输入一一对应的 JSON 字符串数组，容忍代码围栏；`max_tokens` 8192）。任一批失败或块数对不上即取消其余批、整篇失败、不写库，`message` 给中文原因；全部成功才以 upsert 写入。
 
 ## 设置（`internal/settings`、`internal/config`、`internal/crypto`）
 
 - 设置清单是 `internal/config/settings_schema.json`（spec D10），`tools/settings-generator` 由它生成默认值、每键元数据（`config.Lookup`）
   与前端类型；用法见 [Settings](SETTINGS.md)。
 - `internal/settings.Store` 读写 `settings` 表（`main.go` 的同步账号与间隔读它）：写入时 schema 以外的键整批拒收、值按类型校验；读取时忽略 schema 以外的存值并记日志。
-  `UpdateTx` 是在调用方事务里的同一写入（旧库导入用），`settings.Check` 单独判一个键值能否写入。
+  `settings.Check` 单独判一个键值能否写入。
 - `settings.Panel` 是设置面板经 API 做的事：按 schema 类型收发值、凭据不回显、拒收内部键与装不上的代理（`ErrInvalid`），写后装代理或触发同步，写 `startup_on_boot` 前先经 `Autostart` 钩子落到系统，以及两个测试连接。
-- `settings.MinimizedWindowPos`：任一坐标 ≤ -10000 即 Windows 最小化占位位置，不保存也不采用（pitfall 33）；旧库导入与壳的窗口位置都用它。
+- `settings.MinimizedWindowPos`：任一坐标 ≤ -10000 即 Windows 最小化占位位置，不保存也不采用（pitfall 33）；壳的窗口位置用它。
 - 凭据（schema 里 `encrypted` 的键）由 `Store` 经 `internal/crypto` 加解密，调用方只见明文。Windows 用 DPAPI（当前用户范围，
-  spec D3），macOS 沿用 MrRSS 的主机派生密钥 AES-GCM；`crypto.DecryptLegacy` 只读旧 MrRSS 格式，留给旧库导入。
+  spec D3），macOS 用主机派生密钥的 AES-GCM（`machinekey.go`）。
 
 ## 前端（`frontend/`）
 
 - `index.html` 不加载任何外部资源；`src/main.ts` 装上 Pinia 并挂载 `App.vue`：顶栏 `TitleBar`，其下按布局原型变体 B 的三栏（`AppSidebar`、`ArticleList`、`ArticleDetail`），加左下角的 `UndoSnackbar`。
 - `TitleBar` 兼作无边框窗口的标题栏（spec D4）：`utils/frame.ts` 的 `detectHost` 看页面里有没有 `chrome.webview`（Windows）或
-  `webkit.messageHandlers.external`（macOS）。没有宿主（浏览器取证通道）时只是图标加名称的普通顶栏。有宿主时，在顶栏按下后移动才发 `wails:drag`
+  `webkit.messageHandlers.external`（macOS）。顶栏左侧是图标 +「LiteRSS」合成的应用菜单按钮（通用 `ContextMenu`：「立即同步」右侧附同步状态、同步中置灰，调 `POST /api/sync/run`；「设置…」打开设置面板），
+  名称右边是同步状态文案（spec D15）；按钮与菜单都不算拖动区，菜单挂在顶栏外，遮罩上的按下不会冒泡成拖动。
+  没有宿主（浏览器取证通道）时它就是一条普通顶栏。有宿主时，在顶栏按下后移动才发 `wails:drag`
   （按下就交给系统会吞掉双击）；双击在 Windows 调 `POST /api/window/maximise`，在 macOS 发 `wails:drag:doubleclick`（Wails 只在 macOS 处理它，跟随系统偏好）。
   Windows 上还画最小化 / 最大化（还原）/ 关闭三个按钮，并由 `installEdgeResize` 在窗口边缘 5px（角为 L 形 15px）换光标、按下后移动发 `wails:resize:<边>`；
   窗口铺满工作区（`isMaximised`）时按钮显示「还原」且不缩放。
@@ -232,27 +221,39 @@
     慢到的旧视图响应按进入次数丢弃；本地改过显示状态的卡片不被改动之前发出的刷新覆盖。未判定的标题在卡片载入后请求一次译文，失败的不重试（pitfall 12）。
     组件触发的动作失败时在 snackbar 给中文提示（单篇已读失败还原显示），翻页失败不前移、滚动时重试。
   - `sync`：长轮询 `GET /api/sync/state?since=<rev>`，失败 5 秒后重试；状态从运行中变为停下或上次成功时间变化时调用 `reader.afterSync`。
-    `syncLabel` 把状态变成侧栏底部文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
-  - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文；`utils/article.ts` 判定为截断（可见文字少于 500，带题图的首段摘录也算；或以省略号、「阅读全文」「Read more」这类标记结尾）时
-    自动 `POST /api/articles/{id}/fulltext`，成功则全文替换显示，失败保留 RSS 正文并显示后端给的中文原因。全文抓不到且 RSS 正文不足 300 个可见字符（与后端摘要门槛一致）时摘要不可用。
-    「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。换文章后慢到的旧响应按序号丢弃。
+    `syncLabel` 把状态变成顶栏与应用菜单里的同步状态文案（未配置账号按错误串结尾判断，错误串带 `sync:` 这类前缀）。
+  - `detail`：跟着 `reader.selectedId` 取选中文章的 RSS 正文与已缓存的全文，有全文就显示全文，从不自动抓取。`fetchFullText`（「抓取全文」按钮）才 `POST /api/articles/{id}/fulltext`：
+    成功则全文替换显示，已有摘要（或摘要说明）时清掉并重新请求摘要；失败保留 RSS 正文并显示后端给的中文原因。显示的正文不足 300 个可见字符（`utils/article.ts`，与后端摘要门槛一致）或正在抓取时摘要不可用；
+    RSS 正文太短且还没有全文时 `suggestFullText` 提示先抓全文。「摘要」按钮才 `POST /api/articles/{id}/summary`；没生成时显示 `note` 的原因、按钮可再点。
+    「翻译」（`toggleTranslation`，只对标题未判定为中文的文章，spec D21）点击时才用 `utils/bilingual.ts` 的 `textBlocks` 从清洗后的显示正文取块（没有可翻的文字就不请求、给出原因）（段落、列表项、小标题、引用、图注；`pre`、表格、公式里的不取），`POST /api/articles/{id}/translation`，整篇回来才切到对照；再点回原文、再点直接用已有译文。失败停在原文并显示原因，可再点重试。抓到全文后译文作废、回到原文。
+    换文章后慢到的旧响应按序号丢弃，正文在翻译途中换了（抓到全文）也丢弃。
+  - `prefs`：Bionic Reading 开关（spec D22），创建时从 `GET /api/settings` 读 `bionic_reading`（读到之前用户已点过则以点的为准），切换时 `POST /api/settings/update` 只写这一个键；
+    保存失败本次照样生效并在 snackbar 提示。
   - `snackbar`：批量已读的撤销提示与操作失败提示，8 秒后消失、悬停停表；撤销调 `POST /api/undo`，410 时直接消失，其他失败保留「撤销」可重试，成功后回调刷新卡片与计数。
-- 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后；源用按 ID 取色的字母徽标，不加载源图标。
-  右键任一节点「全部标为已读」；`legacy_running` 时底部显示「旧版 MrRSS 正在运行，会把已读改回未读，请退出」；同步状态可点，调 `POST /api/sync/run`；齿轮打开设置面板。
+- 侧栏：分段切换（未读带总未读数）、「全部订阅 → 分类（可折叠）→ 源」与未读数、不属于标签的源排在最后。未读视图只列有未读的源和还有源可列的分类（`reader.sidebarTree`），用户点选的那一项读到零未读仍保留，选别的项或切换视图后才隐藏；全部视图列出全部。源徽标（`FeedBadge`，侧栏、列表行与详情共用）优先显示经 `/api/feeds/icon` 取来的源图标，没有 `iconUrl` 或图取不到时用按 ID 取色的字母徽标；取不到的地址各徽标共用记录，不反复请求。
+  右键任一节点「全部标为已读」。侧栏没有底栏：立即同步与设置都在顶栏应用菜单里。
 - 列表：宽松行（源与时间、标题最多两行、只对已判定为中文的文章显示一行摘录、有 `image_url` 才显示缩略图，英文译文打「译」标记并以原标题作悬停提示），
   右键「标为已读 / 未读、此篇及以上 / 以下标为已读、在浏览器打开」。右键菜单是通用的 `ContextMenu`（Esc、点外面、滚动、失焦都关闭）。
-- 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / 失败原因 +「在浏览器打开」）、摘要框、正文；
-  「摘要 / 在浏览器打开 / 标为未读（已读时）」在底部浮动条。正文排版写死（spec D15）。正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
-- 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`。
+- 详情：无工具栏；标题块（源、时间、译文标题，有译文时下方是原标题）、抓全文提示（进行中 / RSS 正文太短时建议先抓全文 / 失败原因 +「在浏览器打开」）、摘要框、正文；
+  底部浮动条（spec D15）是一排 36px 的方形图标按钮，依次为摘要、翻译（标题未判定为中文时）、Bionic Reading、抓取全文（还没显示全文时）、在浏览器打开，分隔线后是已读。
+  `ArticleDetail` 的 `buttons` 由 `detail` 与 `prefs` 的状态算出每个按钮的图标、文字、禁用与高亮：图标表示当前状态（已摘要是星加勾、对照中是上下分栏、Bionic Reading 开 / 关、未读是封着的信封、已读是拆开的信封），
+  进行中一律换成转圈的 `refresh` 并禁用，开着的高亮底色；文字写点击后会发生什么，同时作 `title` 与 `aria-label`，翻译与 Bionic Reading 带 `aria-pressed`。
+  对照时 `ArticleBody` 用 `interleave` 在同一份清洗后的 HTML 的同样的块里插入 `span.literss-tr`（`textContent` 写入，块尾，有嵌套块时在第一个嵌套块前），再经 `sanitizeArticleHtml`；译文淡色加左侧细线。
+  正文排版写死（spec D15），唯一的例外是 Bionic Reading（spec D22）：开着时 `ArticleBody` 在增强之后调 `utils/bionic.ts` 的 `applyBionic`，用 DOM API 把每个英文词的开头包进 `span.bionic-fix`（加粗长度照抄 text-vide fixation 1 档的词长查表；
+  汉字不分词；跳过 `pre`、`code`、公式、`h1`–`h6`、`b`/`strong` 与 `.literss-tr`）。开关一变正文根节点换 `key` 重建，异步增强按轮次作废，同一份 DOM 只加粗一次；摘要框、标题与列表不动。
+  正文与摘要里的 http(s) 链接经 `POST /api/browser/open` 交给系统浏览器，`mailto:` 交给系统。
+- 不可信 HTML（spec D16）：正文（`ArticleBody`）与摘要（`ArticleSummary`）是仅有的两个 `v-html`，都只经 `utils/sanitize.ts` 的 `sanitizeArticleHtml`（对照视图在清洗结果里插入纯文本译文后再清洗一次：多一轮序列化与解析，不让变异型 XSS 钻空子）。
   它先在 `DOMParser` 的惰性文档里把 `iframe`、`embed`、`object`、`video`、`audio` 换成「在浏览器打开嵌入内容」链接（只收 http(s)，没有就删），把 `data-src`/`data-original` 换进 `src`；
   再交 DOMPurify（HTML + MathML，禁 style/form 类标签与 style/id/name 属性），属性钩子让 URL 只收绝对 http(s)（链接另收 `mailto:`、图片另收 `data:image/*`；`srcset` 按浏览器的切法逐个候选检查，描述符只收 `100w`、`2x` 这种形状），
   并删掉指向应用自身源与回环主机（`localhost`、`*.localhost`、127/8、0/8、`::1`）的地址。列表缩略图的 `image_url` 经同一条规则（`safeImageUrl`）。
   清洗之后才做增强（`utils/enhance.ts`：KaTeX 公式、highlight.js 代码高亮，类名同时读 FreshRSS 的 `data-sanitized-class`），正文含 `$`、`\`、`<pre>` 或 `math` 时才动态载入这个模块。
 - 图片查看器（`ImageViewer`，spec D15）：点正文里的图打开，收正文里全部图片；滚轮以指针为中心缩放，双击在适应窗口与原始大小之间切换，图片超出窗口时可拖动平移，
   点背景 / ✕ / Esc 关闭，多图左右箭头与方向键切换，载入失败时给提示；几何在 `utils/viewer.ts`。正文与摘要的链接点击规则在 `utils/links.ts`。
-- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：一个模态框、一页滚动，分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于；
-  打开时 `GET /api/settings` 作草稿，「保存」只把清单（生成的 `settingsDefaults` 的键）内与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
-  凭据不回显：已存的显示「已保存，留空不改」，留空不提交，「清除」才提交空串；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
+- 设置面板（`SettingsModal` + `stores/settings.ts`，spec D10）：固定大小的模态框（780×520，窗口小时收缩），左侧导航按 `SETTING_GROUPS` 依次为 FreshRSS、大模型、标题翻译、网络代理、应用、关于，
+  右侧一次只显示一组（`v-show`，切换不丢草稿、测试结果与检查更新状态），底部常驻取消 / 保存。导航项用圆点标出有未保存改动（`dirtyGroups`）或有不合法值（`invalidGroups`，目前只有同步间隔）的分组，
+  保存因不合法值被拒时跳到那一组并聚焦输入框。
+  打开时 `GET /api/settings` 作草稿，「保存」一次把所有分组里（`SETTING_KEYS`，即 `SETTING_GROUPS` 的键；`reader` 组的键由浮动条写，不在面板里）与载入值不同的键交给 `POST /api/settings/update`，成功后关闭；取消、Esc、点背景丢弃草稿。
+  凭据不回显（`SecretField`，状态在 `settings.secretState`）：已存的显示不可编辑的掩码与「修改」「清除」，「修改」给空输入框并可取消，「清除」在保存前可撤销、保存时调 `POST /api/settings/secrets/clear`；没存过的是普通输入框，填了才提交；两个测试连接只传表单里的非凭据值与填过或清除的凭据，结果显示后端给的中文。
   手动代理才显示类型、地址与认证；「关于」显示 `GET /api/version`，「检查更新」调 `GET /api/update/check`：有新版本且 `in_app` 时显示「更新到 X」，
   点一次调 `POST /api/update/start`，之后每 500 毫秒轮询 `GET /api/update/status` 显示下载进度条与各步文字，失败时显示原因与「去发布页」；
   不能应用内更新时只给「去发布页」（`POST /api/browser/open`）。打开面板时若已有更新在进行或已结束（例如托盘开始的），直接显示其进度。
@@ -270,7 +271,7 @@
 | `internal/freshrss` | FreshRSS Google Reader API 客户端：订阅与标签、`stream/items/ids`、`stream/items/contents`、`edit-tag`、`mark-all-as-read`，条目 ID 为 `int64`（`ParseItemID` 认十进制与长格式）。首次调用时登录，401 时重新登录重试一次；`Clients.For` 让同一配置共用一个已登录客户端。局域网服务器用自己的 HTTP 客户端（pitfall 9）。`freshrsstest` 是测试缝假服务，`tools/fake-freshrss` 把它提供给开发实例（[Testing](TESTING.md#假-freshrss)）；`internal/syncer` 的拉取调用订阅、标签与两个 `stream/items` 接口，推送器调用 `edit-tag` 与 `mark-all-as-read` |
 | `internal/fulltext` | 全文抓取：`fetch.go` 负责出网，`extract.go` 把一次响应判为 `success` / `no_content` / `blocked` / `parse_failed` / `unreachable`（pitfall 21），`message.go` 给各结论的中文原因；调用方是 `internal/enrich` |
 | `internal/translation` | 百度翻译客户端（`Baidu.TranslateLines`，按行批量译成中文）与语言检测；短文本先按书写系统判语言（pitfall 11） |
-| `internal/summary`、`internal/ai` | 摘要：写死的中文提示词与 Markdown 渲染；`ai` 是模型调用，OpenAI 兼容与 DeepSeek 两种请求格式 |
+| `internal/summary`、`internal/ai` | 摘要与全文翻译的模型调用：写死的中文提示词、摘要的 Markdown 渲染、译文 JSON 数组的解析；`ai` 是模型调用，OpenAI 兼容与 DeepSeek 两种请求格式 |
 | `internal/htmltext` | 把不可信 HTML 抽成可见纯文本（列表摘录与摘要输入共用） |
 | `internal/utils/httputil` | 出站 HTTP 客户端与三态代理（ADR 0004，pitfall 8、10） |
 | `internal/update` | 检查更新与应用内更新：GitHub 最新正式发布与当前版本比较；`Updater` 下载、校验并按 `Locate` / `PlanInstall` 安装（spec D20）；`Watch` 是壳的定时自动检查；`updatetest` 是假发布服务 |

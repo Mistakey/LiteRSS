@@ -18,6 +18,7 @@ var defaultsJSON []byte
 type Defaults struct {
 	BaiduAppID               string `json:"baidu_app_id"`
 	BaiduSecretKey           string `json:"baidu_secret_key"`
+	BionicReading            bool   `json:"bionic_reading"`
 	CloseToTray              bool   `json:"close_to_tray"`
 	FreshRSSAPIPassword      string `json:"freshrss_api_password"`
 	FreshRSSAutoSyncInterval int    `json:"freshrss_auto_sync_interval"`
@@ -61,6 +62,8 @@ func GetString(key string) string {
 		return defaults.BaiduAppID
 	case "baidu_secret_key":
 		return defaults.BaiduSecretKey
+	case "bionic_reading":
+		return strconv.FormatBool(defaults.BionicReading)
 	case "close_to_tray":
 		return strconv.FormatBool(defaults.CloseToTray)
 	case "freshrss_api_password":

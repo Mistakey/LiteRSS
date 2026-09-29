@@ -23,9 +23,9 @@ onBeforeUnmount(() => sync.stop());
 
 <template>
   <div class="app">
-    <TitleBar />
+    <TitleBar @settings="settingsOpen = true" />
     <div class="panes">
-      <AppSidebar @settings="settingsOpen = true" />
+      <AppSidebar />
       <ArticleList />
       <ArticleDetail />
     </div>

@@ -19,7 +19,8 @@ This document covers testing strategies and patterns for LiteRSS.
 
 同步相关的测试只对假服务跑，不连真实 FreshRSS。`internal/freshrss/freshrsstest.Server` 是一个 `http.Handler`，
 复现 spec D6 列出的服务端行为（两种 ID 格式、`n` 无上限、续页丢首条、`it`/`xt`、`edit-tag` 恒回 `OK`、`mark-all-as-read` 按 `ts` 截断、
-会话过期回 401；见 pitfall 28–30），其余接口一律 404。
+会话过期回 401；见 pitfall 28–30），以及不要会话的图标缓存：订阅的 `iconUrl` 一律指向 `f.php?h=<源 ID>`，
+`Feed.Icon` 为空时 `f.php` 回占位图 `freshrsstest.Placeholder`（也在 `PlaceholderPath`）；其余接口一律 404。
 
 - 测试里：`fake := freshrsstest.New("user", "secret")`，`AddFeeds` / `AddItems` 播种（条目 `ID` 就是抓取时间的微秒数），
   `srv := httptest.NewServer(fake)`，客户端用 `freshrss.NewClient(srv.URL, "user", "secret")`。
@@ -27,7 +28,7 @@ This document covers testing strategies and patterns for LiteRSS.
 - 断言服务端收到了什么：`Item`、`Items`、`EditTags`、`MarkAlls`、`Logins`。
 - `RejectItem` 是故障注入，不是 FreshRSS 的行为：点名该条目的 `edit-tag` 回 400，供推送器的二分定位测试用。
 
-开发实例要连的假服务用 `tools/fake-freshrss`，它用 `freshrsstest.Generate` 生成订阅与约 100 天内的文章（中英文标题、部分已读、同 URL 重发、缺发布时间）：
+开发实例要连的假服务用 `tools/fake-freshrss`，它用 `freshrsstest.Generate` 生成订阅与约 100 天内的文章（中英文标题、部分已读、同 URL 重发、缺发布时间；奇数号源有图标，偶数号源只有占位图）：
 
 ```bash
 go run ./tools/fake-freshrss            # 127.0.0.1:1240，账号 dev / dev；-feeds -items -seed -addr -user -pass 可调
@@ -38,17 +39,6 @@ curl --noproxy "*" -d "Email=dev&Passwd=dev" http://127.0.0.1:1240/api/greader.p
 `POST /_fake/add?feed=1&n=3`（抓到新条目）、`/_fake/read?i=<id>`（别处读掉，`&read=0` 为改回未读）、`/_fake/unsubscribe?feed=1`、
 `/_fake/expire` 在两次同步之间扮演别的设备与服务端。数据只在内存里，重启即重新生成。
 
-### 合成旧库
-
-旧库导入（`internal/legacyimport`）的测试只用合成旧库，agent 不读用户真实的 `%APPDATA%\MrRSS\rss.db`。`legacyimport_test.go` 的 `legacySchema`
-按 `legacy-final` 的建表语句与 `runMigrations` 加的列逐字建库（`git show legacy-final:internal/database/schema.go`、`migrations.go`、
-`freshrss_sync_db.go`），`fixture` 按真实库实测的各类行播种：无条目 ID、无 stream ID、同 URL、等于原标题的译文、各种 `published_at` 写法、
-推送队列的已同步 / 已放弃 / 星标 / 先读后未读、白名单外设置、最小化占位坐标、多个 AI profile。
-
-- 凭据密文用测试里逐字抄的 `legacy-final` `crypto.Encrypt`（`legacyEncrypt`）生成，钉住 `MrRSS-v1:` 格式；传别的机器 ID 就得到本机解不开的密文。
-- 旧库文件在导入前后按字节比较；导入先于第一个同步周期由 `Importer.Gate` 对假 FreshRSS 跑真实的 `RunCycle` 验证。
-- 旧库结构有新发现时，先改 `legacySchema` 与 `fixture`，再改导入器。
-
 ### API 路由
 
 - `internal/routes/routes_test.go` 的 `TestRouteTable` 遍历 `routes.Table`：方法只能是 GET / POST / PUT / DELETE、标了 `Mutates` 的路由恰好是非 GET 的那些、
@@ -56,9 +46,10 @@ curl --noproxy "*" -d "Email=dev&Passwd=dev" http://127.0.0.1:1240/api/greader.p
 - handler 测试用 `newTestAPI`：临时目录里的真实库加 `routes.Handler`，用 SQL 直接播种文章，经 `httptest` 发请求。
   已读动作走真实的 `syncer.Service`（远端恒失败，推送只会退避），结果从卡片的 `read` 读回，所以断言的是用户看到的显示状态。
   查询本身的边界（完整快照与 `newest`、显示状态、同 URL 折叠、摘录）在 `internal/library` 的测试里覆盖。
-- 内容动作的 handler 测试只用空配置（没有百度与模型）走通响应形状与 404/400；行为在 `internal/enrich` 的测试里对 `httptest` 替身覆盖：
+- 内容动作的 handler 测试主要用空配置（没有百度与模型）走通响应形状与 404/400（全文翻译另接一个假模型，见下）；行为在 `internal/enrich` 的测试里对 `httptest` 替身覆盖：
   假百度按行查表回译文并记录每次的 `q`，假模型按 OpenAI 格式回固定 Markdown 并记录用户提示词，假网页 `/ok` 回可提取的文章、其余路径回 403。
   断言看存进库的值（译文、「已判定中文」、摘要）、送给百度与模型的内容，以及失败时的中文文案。
+  全文翻译（`enrich/translate_test.go`）的假模型把用户提示词当 JSON 块数组读，逐块回「译:」+ 原文（套一层代码围栏），`answer` 钩子可以改某次回应（少回一块、回 500），`batches` 记下每批送了什么；`content_test.go` 另有一个接了假模型的 `TestTranslateArticle` 走通成功、未配置与失败三种回应。
 
 ### 假发布服务
 
@@ -86,11 +77,15 @@ curl --noproxy "*" -X POST "http://127.0.0.1:1241/_fake/release?corrupt=1&rate=0
   `install()` 换掉 `fetch`；`add` 播种文章，`tree` 设订阅树，`syncStates` 排好长轮询依次返回的状态（排空后挂起），`callsTo(method, path)` 断言前端发了什么。
   它只模拟前端看得见的规则（快照顺序、显示状态、批次与撤销令牌、译文），不模拟同步；等待异步链用 `settle()`，计时相关的用 `vi.useFakeTimers()`。
 - store 测试（`src/stores/*.test.ts`）守住：快照在视图内稳定（点开与批量已读只变灰，同步后不替换）、新条目只进横幅且点击才载入、
-  范围与 `ts` 的取法、撤销调用后端令牌与 410 的处理、标题译文只请求一次；`App.test.ts` 对整页核对侧栏树与计数、列表行形态、右键菜单与横幅。
-- `FakeBackend` 的 `content` 播种 RSS 正文，`fullTexts`、`summaries` 按 ID 排好抓全文与摘要的回应（缺省分别是 `no_link` 与「还没有配置摘要模型」）。
-  `stores/detail.test.ts` 守住截断才抓全文、成功替换、失败保留正文与原因、太短时不能摘要、换文章丢弃旧响应；`ArticleDetail.test.ts` 核对详情三种抓取情况、浮动条、链接外开与图片查看器。
-- `FakeBackend` 的 `settings` 是已存设置（凭据按明文放，GET 时回空串并列进 `saved_secrets`，清单外的键写入回 400），`tests` 排好两个测试连接的回应（缺省成功），`update` 是检查更新的回应，`updateSteps` 排好应用内更新依次报告的进度（`start` 回第一项，之后每次 `status` 前进一项并停在最后一项）。
-  `SettingsModal.test.ts` 守住分组顺序、保存只提交清单内改过的键（已存凭据不回写、「清除」提交空串）、测试连接的传参与成功 / 失败显示、拒收时不关闭，以及「更新到 X」只点一次、进度轮询、失败原因与发布页、打开时显示已有的更新进度。
+  范围与 `ts` 的取法、撤销调用后端令牌与 410 的处理、标题译文只请求一次；`App.test.ts` 对整页核对侧栏树与计数（侧栏没有底栏）、列表行形态、右键菜单、横幅与经顶栏应用菜单打开设置。
+  `TitleBar.test.ts` 核对窗口按钮、拖动与双击（应用菜单按钮不算拖动区），以及应用菜单的两项、同步状态文案与同步中「立即同步」置灰。
+- `FakeBackend` 的 `content` 播种 RSS 正文，`fullTexts`、`summaries` 按 ID 排好抓全文与摘要的回应（缺省分别是 `no_link` 与「还没有配置大模型」；也可以放 Promise 以观察进行中的状态），`translator` 按收到的块回全文翻译（可以返回 Promise 以观察「翻译中…」；缺省为「还没有配置大模型」）。
+  `stores/detail.test.ts` 守住打开不抓全文、缓存全文直接显示、按钮抓取成功替换与失败保留正文、摘要随全文重做、太短时不能摘要、换文章丢弃旧响应，以及换文章或翻译途中抓到全文时丢弃慢到的译文；`ArticleDetail.test.ts` 核对抓全文按钮与提示、浮动条、链接外开、图片查看器，以及「翻译」的三次切换、中文文章没有按钮、翻译中与失败、抓到全文后回到原文。块的提取与对照插入在 `utils/bilingual.test.ts`（代码块、表格、公式不翻，译文按纯文本写入）。
+  浮动条只有图标，测试按按钮的类名（`summary`、`translate`、`bionic`、`fetch`、`ext`、`read`）找按钮，断言 `aria-label`、`aria-pressed`、禁用与图标（`iconOf` 按第一个图形的属性对照 `icons.ts`）。
+  Bionic Reading 的开关、正文重建与只加粗一次也在 `ArticleDetail.test.ts`：正文含代码时要等动态载入的增强完成才加粗，用 `vi.waitFor` 等、再多等一会儿确认没有第二次加粗；
+  词长查表（与 text-vide fixation 1 档一致）、词的切分与跳过的元素在 `utils/bionic.test.ts`，读写开关与保存失败在 `stores/prefs.test.ts`。
+- `FakeBackend` 的 `settings` 是已存设置（凭据按明文放，GET 时回空串并列进 `saved_secrets`，清单外的键与空串凭据写入回 400，清除走 `secrets/clear`），`tests` 排好两个测试连接的回应（缺省成功），`update` 是检查更新的回应，`updateSteps` 排好应用内更新依次报告的进度（`start` 回第一项，之后每次 `status` 前进一项并停在最后一项）。
+  `SettingsModal.test.ts` 守住导航顺序与一次只显示一组、切换分组不丢草稿 / 测试结果 / 检查更新结果、保存一次提交所有分组的改动并在导航上标出改过与不合法的分组（同步间隔不合法时跳回 FreshRSS 组）、保存只提交清单内改过的键（已存凭据不回写）、密钥的掩码 / 修改 / 取消 / 清除与撤销 / 未保存各状态、测试连接的传参与成功 / 失败显示、拒收时不关闭，以及「更新到 X」只点一次、进度轮询、失败原因与发布页、打开时显示已有的更新进度。
 - 清洗器载荷矩阵在 `utils/sanitize.test.ts`：html-sanitize.md 第 1–4 节的载荷都不能留下事件属性、脚本类 URL 或嵌入元素，指向自身源与回环的地址被删，
   `mailto:`、`data-sanitized-class`、外部图片与 MathML 保留。改清洗规则时先加载荷，再确认去掉对应规则时测试会失败。
 
@@ -176,7 +171,6 @@ Frontend coverage is not currently a configured package script; add a matching c
    通过的样子：每个请求 200 且带 spec D16 的 CSP；加载期控制台为空；`external` 为空；探针三项都报违规。截图用 Read 查看，对照 spec D15。
    需要数据时先起 `tools/fake-freshrss`（见「假 FreshRSS」），再用 `POST /api/settings/update` 写入 `freshrss_server_url=http://127.0.0.1:1240`、`dev` / `dev`，
    写入后自动同步一轮。点击、右键等交互用 CDP 的 `Input.dispatchMouseEvent` 在同一个页签里驱动后再 `Page.captureScreenshot`；取证脚本本身只做加载与截图。
-   用户的旧版 MrRSS 在运行时，同步状态带 `legacy_running`，侧栏底部会出现旧版提示，这是正确行为。
    `tools/fake-freshrss` 生成的条目链接都是 `*.example.com`，抓全文只会得到连不上。要取证详情的抓取成功 / 失败时，在仓库里临时写一个 main 包（取证后删掉）：
    用 `freshrsstest.New` + `AddFeeds`/`AddItems` 放几条短正文的条目，链接指向同一程序在另一个回环端口上起的页面（一页正常文章、其余回 403），
    并把开发实例的 `proxy_mode` 设为 `direct`。正文图片用 `data:image/svg+xml` 生成：清洗器会删掉指向回环主机的图片。

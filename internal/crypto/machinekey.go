@@ -11,30 +11,20 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 )
 
-// The machine-key scheme MrRSS wrote: AES-256-GCM under a PBKDF2 key derived
-// from the host name, OS and architecture. It is the macOS scheme and the
-// format of every credential in a legacy MrRSS library.
+// The machine-key scheme, used on macOS: AES-256-GCM under a PBKDF2 key
+// derived from the host name, OS and architecture. The marker keeps the
+// string it was first written with, so stored values stay readable.
 const (
 	pbkdf2Iterations = 600000
 	keySize          = 32
 	saltSize         = 16
-	legacyMarker     = "MrRSS-v1:"
+	machineKeyMarker = "MrRSS-v1:"
 )
 
-// DecryptLegacy opens a credential written by MrRSS ("MrRSS-v1:" prefix).
-func DecryptLegacy(ciphertext string) (string, error) {
-	if !strings.HasPrefix(ciphertext, legacyMarker) {
-		return "", fmt.Errorf("%w: missing or invalid version marker", ErrDecryptionFailed)
-	}
-	return decryptLegacyPayload(strings.TrimPrefix(ciphertext, legacyMarker))
-}
-
-// machineID feeds the key derivation. MrRSS also read /etc/machine-id, which
-// exists on neither Windows nor macOS, so leaving it out keeps old keys valid.
+// machineID feeds the key derivation.
 func machineID() (string, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -61,8 +51,8 @@ func deriveKey(machineID string, salt []byte) ([]byte, error) {
 	return k, nil
 }
 
-// encryptLegacy writes [salt][nonce][ciphertext+tag], base64, behind the marker.
-func encryptLegacy(plaintext string) (string, error) {
+// encryptMachineKey writes [salt][nonce][ciphertext+tag], base64, behind the marker.
+func encryptMachineKey(plaintext string) (string, error) {
 	id, err := machineID()
 	if err != nil {
 		return "", err
@@ -86,10 +76,10 @@ func encryptLegacy(plaintext string) (string, error) {
 
 	out := append(salt, nonce...)
 	out = gcm.Seal(out, nonce, []byte(plaintext), nil)
-	return legacyMarker + base64.StdEncoding.EncodeToString(out), nil
+	return machineKeyMarker + base64.StdEncoding.EncodeToString(out), nil
 }
 
-func decryptLegacyPayload(encoded string) (string, error) {
+func decryptMachineKey(encoded string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return "", fmt.Errorf("%w: base64: %v", ErrDecryptionFailed, err)

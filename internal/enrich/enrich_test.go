@@ -287,10 +287,19 @@ func (e *env) useModel(url string) {
 // rssBody has 350 visible characters: long enough to summarize.
 var rssBody = "<p>" + strings.Repeat("长", 350) + "</p>"
 
-func TestSummarizeFromFullTextThenStored(t *testing.T) {
+// cacheFullText fetches the article's full text, which must succeed.
+func (e *env) cacheFullText(t *testing.T, id int64) {
+	t.Helper()
+	got, err := e.svc.FullText(context.Background(), id)
+	if err != nil || got.Outcome != fulltext.OutcomeSuccess {
+		t.Fatalf("full text: %+v, %v", got, err)
+	}
+}
+
+func TestSummarizeUsesRSSBodyWithoutFetching(t *testing.T) {
 	e := newEnv(t)
-	web, _ := fakeWeb(t)
-	model, prompts := fakeModel(t, "文章讲了一只狐狸。\n\n- 要点一\n- 要点二")
+	web, hits := fakeWeb(t)
+	model, prompts := fakeModel(t, "摘要 <script>alert(1)</script><img src=x onerror=alert(1)> [点我](javascript:alert(1))\n\n<div>原始块</div>")
 	e.useModel(model.URL)
 	e.article(t, 1, web.URL+"/ok", "Fox", rssBody)
 
@@ -298,29 +307,10 @@ func TestSummarizeFromFullTextThenStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Note != "" || !strings.Contains(got.HTML, "<li>要点一</li>") {
-		t.Fatalf("got %+v", got)
+	if hits.Load() != 0 {
+		t.Fatalf("Summarize fetched the page %d times, want never", hits.Load())
 	}
-	if len(*prompts) != 1 || !strings.Contains((*prompts)[0], "quick brown fox") || strings.Contains((*prompts)[0], "长长") {
-		t.Fatalf("the model was not given the full text: %q", *prompts)
-	}
-	if again, err := e.svc.Summarize(context.Background(), 1); err != nil || again.HTML != got.HTML || len(*prompts) != 1 {
-		t.Fatalf("stored summary not reused: %+v %v, %d model calls", again, err, len(*prompts))
-	}
-}
-
-func TestSummarizeFallsBackToLongRSSBody(t *testing.T) {
-	e := newEnv(t)
-	web, _ := fakeWeb(t)
-	model, prompts := fakeModel(t, "摘要 <script>alert(1)</script><img src=x onerror=alert(1)> [点我](javascript:alert(1))\n\n<div>原始块</div>")
-	e.useModel(model.URL)
-	e.article(t, 1, web.URL+"/paywall", "Paywalled", rssBody)
-
-	got, err := e.svc.Summarize(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Note != "未能获取全文：站点拒绝了这次抓取，可以在浏览器里打开原文。摘要基于 RSS 正文。" {
+	if got.Note != "摘要基于 RSS 正文。" {
 		t.Fatalf("note = %q", got.Note)
 	}
 	if len(*prompts) != 1 || !strings.Contains((*prompts)[0], strings.Repeat("长", 350)) {
@@ -340,25 +330,98 @@ func TestSummarizeFallsBackToLongRSSBody(t *testing.T) {
 	}
 }
 
-func TestSummarizeRefusesShortRSSBody(t *testing.T) {
+func TestSummarizeUsesCachedFullText(t *testing.T) {
 	e := newEnv(t)
-	web, _ := fakeWeb(t)
-	model, prompts := fakeModel(t, "不该调用")
+	web, hits := fakeWeb(t)
+	model, prompts := fakeModel(t, "文章讲了一只狐狸。\n\n- 要点一\n- 要点二")
 	e.useModel(model.URL)
-	e.article(t, 1, web.URL+"/paywall", "Paywalled", "<p>Only a teaser.</p>")
+	e.article(t, 1, web.URL+"/ok", "Fox", rssBody)
+	e.cacheFullText(t, 1)
 
 	got, err := e.svc.Summarize(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.HTML != "" || got.Note != "未能获取全文：站点拒绝了这次抓取，可以在浏览器里打开原文。RSS 正文太短，无法生成摘要。" {
+	if got.Note != "" || !strings.Contains(got.HTML, "<li>要点一</li>") {
 		t.Fatalf("got %+v", got)
 	}
-	if len(*prompts) != 0 {
-		t.Fatal("the model was called for a body too short")
+	if len(*prompts) != 1 || !strings.Contains((*prompts)[0], "quick brown fox") || strings.Contains((*prompts)[0], "长长") {
+		t.Fatalf("the model was not given the full text: %q", *prompts)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("hits = %d, want the one fetch before", hits.Load())
+	}
+}
+
+func TestFullTextDropsTheSummaryItReplaces(t *testing.T) {
+	e := newEnv(t)
+	web, _ := fakeWeb(t)
+	model, prompts := fakeModel(t, "摘要")
+	e.useModel(model.URL)
+	e.article(t, 1, web.URL+"/ok", "Fox", rssBody)
+
+	if _, err := e.svc.Summarize(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	e.cacheFullText(t, 1)
+	if _, ok := e.stored(t, `SELECT summary FROM summaries WHERE item_id = ?`, 1); ok {
+		t.Fatal("the RSS summary outlived the full text")
+	}
+	got, err := e.svc.Summarize(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Note != "" || len(*prompts) != 2 || !strings.Contains((*prompts)[1], "quick brown fox") {
+		t.Fatalf("not remade from the full text: %+v, %q", got, *prompts)
+	}
+}
+
+func TestRSSSummaryIsNotStoredOverAFullTextCachedMeanwhile(t *testing.T) {
+	e := newEnv(t)
+	e.article(t, 1, "https://x/1", "Fox", rssBody)
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The reader fetches the full text while the model is writing.
+		e.exec(t, `INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (1, '<p>full</p>', 1)`)
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": "摘要"}}}})
+	}))
+	t.Cleanup(model.Close)
+	e.useModel(model.URL)
+
+	got, err := e.svc.Summarize(context.Background(), 1)
+	if err != nil || got.HTML == "" {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 	if _, ok := e.stored(t, `SELECT summary FROM summaries WHERE item_id = ?`, 1); ok {
-		t.Fatal("a refusal was stored")
+		t.Fatal("an RSS summary was stored after the full text arrived")
+	}
+}
+
+func TestSummarizeRefusesShortBodies(t *testing.T) {
+	e := newEnv(t)
+	web, hits := fakeWeb(t)
+	model, prompts := fakeModel(t, "不该调用")
+	e.useModel(model.URL)
+	e.article(t, 1, web.URL+"/paywall", "Paywalled", "<p>Only a teaser.</p>")
+	e.article(t, 2, web.URL+"/ok", "Short", "")
+	e.exec(t, `INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (2, '<p>tiny</p>', 1)`)
+
+	for id, want := range map[int64]string{
+		1: "RSS 正文太短，无法生成摘要，可以先抓取全文。",
+		2: "正文太短，无法生成摘要。",
+	} {
+		got, err := e.svc.Summarize(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.HTML != "" || got.Note != want {
+			t.Fatalf("%d: got %+v, want note %q", id, got, want)
+		}
+		if _, ok := e.stored(t, `SELECT summary FROM summaries WHERE item_id = ?`, id); ok {
+			t.Fatalf("%d: a refusal was stored", id)
+		}
+	}
+	if len(*prompts) != 0 || hits.Load() != 0 {
+		t.Fatalf("model calls %d, page fetches %d; want none", len(*prompts), hits.Load())
 	}
 }
 
@@ -370,7 +433,7 @@ func TestSummarizeWithoutModelSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.HTML != "" || got.Note != "还没有配置摘要模型，请在设置里填写。" {
+	if got.HTML != "" || got.Note != "还没有配置大模型，请在设置里填写。" {
 		t.Fatalf("got %+v", got)
 	}
 }

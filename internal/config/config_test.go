@@ -38,8 +38,8 @@ func TestSchemaHasNoRemovedKeys(t *testing.T) {
 			t.Errorf("schema still has removed key %q", key)
 		}
 	}
-	if got := len(SettingsKeys()); got != 23 {
-		t.Errorf("schema has %d keys, want the 18 visible + 5 window keys of spec D10", got)
+	if got := len(SettingsKeys()); got != 24 {
+		t.Errorf("schema has %d keys, want the 18 panel + 1 Bionic Reading (spec D22) + 5 window keys of spec D10", got)
 	}
 }
 

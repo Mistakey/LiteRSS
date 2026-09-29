@@ -13,7 +13,6 @@ const base: SyncState = {
   pending: 0,
   last_sync_at: 1000,
   error: '',
-  legacy_running: false,
 };
 
 beforeEach(() => {
@@ -69,7 +68,7 @@ describe('同步状态文案', () => {
     [null, '正在连接…'],
     [{ ...base, running: true }, '正在同步…'],
     [{ ...base, error: 'sync: the FreshRSS account is not configured' }, '未配置 FreshRSS 账号'],
-    [{ ...base, error: 'dial tcp: refused' }, '同步失败，点击重试'],
+    [{ ...base, error: 'dial tcp: refused' }, '同步失败'],
     [{ ...base, last_sync_at: 0 }, '尚未同步'],
     [{ ...base, last_sync_at: now - 30 }, '刚刚已同步'],
     [{ ...base, last_sync_at: now - 5 * 60 }, '5 分钟前已同步'],

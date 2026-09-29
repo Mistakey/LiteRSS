@@ -291,3 +291,58 @@ describe('范围名', () => {
     expect(reader.streamName('feed/2')).toBe('The Verge');
   });
 });
+
+describe('侧栏树', () => {
+  function withQuietFeeds() {
+    be.tree = {
+      categories: [
+        {
+          id: 'user/-/label/科技',
+          label: '科技',
+          feeds: [feed('feed/1', '少数派'), feed('feed/3', '读完的源')],
+        },
+        { id: 'user/-/label/安静', label: '安静', feeds: [feed('feed/4', '没有未读')] },
+      ],
+      feeds: [feed('feed/2', 'The Verge'), feed('feed/5', '也没有未读')],
+    };
+  }
+  const ids = (reader: ReturnType<typeof useReader>) => ({
+    categories: reader.sidebarTree.categories.map((c) => [c.id, c.feeds.map((f) => f.id)]),
+    feeds: reader.sidebarTree.feeds.map((f) => f.id),
+  });
+
+  it('未读视图不列零未读的源，没有可显示源的分类整个隐藏；全部视图不变', async () => {
+    withQuietFeeds();
+    const reader = await started();
+    expect(ids(reader)).toEqual({
+      categories: [['user/-/label/科技', ['feed/1']]],
+      feeds: ['feed/2'],
+    });
+
+    await reader.setView('all');
+    expect(reader.sidebarTree).toEqual(be.tree);
+  });
+
+  it('选中的源读到零未读仍保留，选了别的项才隐藏', async () => {
+    const reader = await started();
+    await reader.setStream('feed/2');
+    await reader.open(20);
+    expect(reader.unreadIn('feed/2')).toBe(0);
+    expect(ids(reader).feeds).toEqual(['feed/2']);
+
+    await reader.setStream(READING_LIST);
+    expect(ids(reader).feeds).toEqual([]);
+  });
+
+  it('选中的分类读到零未读仍保留，切换视图后才隐藏', async () => {
+    const reader = await started();
+    await reader.setStream('user/-/label/科技');
+    await reader.markStream('user/-/label/科技');
+    expect(reader.unreadIn('user/-/label/科技')).toBe(0);
+    expect(ids(reader).categories).toEqual([['user/-/label/科技', []]]);
+
+    await reader.setView('all');
+    await reader.setView('unread');
+    expect(ids(reader).categories).toEqual([]);
+  });
+});

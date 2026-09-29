@@ -288,12 +288,6 @@ func urlGroup(ctx context.Context, tx *sql.Tx, ids []int64, onlyUnread bool) ([]
 	return queryIDs(ctx, tx, q, idsJSON, idsJSON)
 }
 
-// PutReadTx is putRead for the legacy import, which writes its intents in its
-// own transaction before any cycle runs.
-func PutReadTx(ctx context.Context, tx *sql.Tx, ids []int64, value int) error {
-	return putRead(ctx, tx, ids, value)
-}
-
 // putRead upserts an intent for each id under one fresh seq. A rewritten
 // intent starts its attempts over; its new seq keeps a push of the old value
 // from deleting it.

@@ -44,7 +44,8 @@
   唯一的例外是无边框顶栏给窗口宿主发的 `wails:drag` / `wails:resize:*` 等消息，只在 `utils/frame.ts` 与 `TitleBar` 里（spec D4）。
 - 样式用 `src/style.css` 的 CSS 变量加组件 scoped CSS，深色只靠 `prefers-color-scheme`；不写内联 `<style>` 或 `style` 属性字符串（CSP `style-src 'self'`）。
 - 图标用 `Icon` 组件，新图标加进 `src/components/icons.ts` 的形状表，不用 `v-html` 塞 SVG。
-- 不可信 HTML 只经 `sanitizeArticleHtml` 进 `v-html`，而且只在 `ArticleBody`、`ArticleSummary` 两个组件里；eslint 在其余地方把 `vue/no-v-html` 当错误。
+- 不可信 HTML 只经 `sanitizeArticleHtml` 进 `v-html`，而且只在 `ArticleBody`、`ArticleSummary` 两个组件里（对照视图的 `interleave` 往清洗结果里加纯文本译文后，结果再经一次 `sanitizeArticleHtml`）；eslint 在其余地方把 `vue/no-v-html` 当错误。
+  渲染后再改正文（增强、Bionic Reading）只用 DOM API 在已有节点上改，不拼 HTML 字符串再解析。
   单独进 `src`/`href` 的后端地址（如列表缩略图）也要过同一条 URL 规则（`safeImageUrl`），外部链接走 `POST /api/browser/open`，不在窗口里跳转。
 - 动态位置用 `:style` 对象绑定（经 CSSOM 写入，CSP 不拦）；颜色这类有限取值用样式类（如 `FeedBadge` 的 `c0`–`c7`）。
 - 后端调用只经 `src/api.ts`；跨组件的状态放 Pinia setup store，组件只调 store 的动作。视图里的快照与卡片按 `reader` 的规则变化：

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useDetail } from '../stores/detail';
+import { usePrefs } from '../stores/prefs';
 import { useReader } from '../stores/reader';
 import { useNow } from '../composables/useNow';
 import { displayTitle, isTranslated, relativeTime } from '../utils/format';
@@ -8,11 +9,16 @@ import ArticleBody from './ArticleBody.vue';
 import ArticleSummary from './ArticleSummary.vue';
 import FeedBadge from './FeedBadge.vue';
 import Icon from './Icon.vue';
+import type { IconName } from './icons';
 import ImageViewer from './ImageViewer.vue';
 
-// 详情栏（spec D15）：无工具栏；标题块、抓全文提示、摘要框、正文；「摘要 / 在浏览器打开 / 标为未读」在底部浮动条。
+// 详情栏（spec D15）：无工具栏；标题块、抓全文提示、摘要框、正文。
+// 底部浮动条只有图标：摘要、翻译、Bionic Reading、抓取全文、在浏览器打开，分隔线后是已读。
+// 图标表示当前状态，高亮底色表示开着，进行中换成转圈；文字进悬停提示与无障碍名称，写点击后会发生什么。
+// 已显示全文时没有「抓取全文」，标题是中文的文章没有「翻译」（spec D21）。
 const reader = useReader();
 const detail = useDetail();
+const prefs = usePrefs();
 const now = useNow();
 
 const scroller = ref<HTMLElement>();
@@ -22,11 +28,102 @@ const card = computed(() => detail.card);
 const showSummary = computed(
   () => detail.summaryLoading || !!detail.summaryHtml || !!detail.summaryNote
 );
-const summaryLabel = computed(() =>
-  detail.summaryLoading ? '生成中…' : detail.summaryHtml ? '已摘要' : '摘要'
-);
 /** 抓取失败且 RSS 正文太短：提示里的「在浏览器打开」是主按钮。 */
 const shortFailure = computed(() => detail.fetchStatus === 'failed' && !detail.canSummarize);
+
+type BarKey = 'summary' | 'translate' | 'bionic' | 'fetch' | 'ext' | 'read';
+
+interface BarButton {
+  key: BarKey;
+  icon: IconName;
+  /** 悬停提示与无障碍名称。 */
+  label: string;
+  onClick: () => void;
+  spin?: boolean;
+  primary?: boolean;
+  /** 开着：高亮底色。 */
+  active?: boolean;
+  /** 已完成、不能再点，但不置灰。 */
+  done?: boolean;
+  /** 开关类按钮的 aria-pressed；其余不设。 */
+  pressed?: boolean;
+  disabled?: boolean;
+}
+
+const busy = (key: BarKey, label: string, rest: Partial<BarButton> = {}): BarButton => ({
+  key,
+  icon: 'refresh',
+  label,
+  spin: true,
+  disabled: true,
+  onClick: () => {},
+  ...rest,
+});
+
+function summaryButton(): BarButton {
+  const base = { key: 'summary', onClick: detail.summarize } as const;
+  if (detail.summaryLoading) return busy('summary', '摘要生成中…', { primary: true });
+  if (detail.summaryHtml)
+    return { ...base, icon: 'sparkCheck', label: '已生成摘要', done: true, disabled: true };
+  if (detail.canSummarize) return { ...base, icon: 'spark', label: '生成摘要', primary: true };
+  let label = '正文太短，可以先抓取全文';
+  if (detail.fetchStatus === 'fetching') label = '全文抓取中，稍后可以生成摘要';
+  else if (detail.fetchStatus === 'ok') label = '正文太短，无法摘要';
+  return { ...base, icon: 'spark', label, primary: true, disabled: true };
+}
+
+function translateButton(): BarButton {
+  const base = { key: 'translate', onClick: detail.toggleTranslation } as const;
+  if (detail.translating) return busy('translate', '翻译中…', { pressed: false });
+  if (detail.bilingual)
+    return {
+      ...base,
+      icon: 'bilingual',
+      label: '正在对照，点击回到原文',
+      active: true,
+      pressed: true,
+    };
+  if (detail.translateDisabled) {
+    const label = detail.fetchStatus === 'fetching' ? '全文抓取中，稍后可以翻译' : '正文载入中';
+    return { ...base, icon: 'translate', label, pressed: false, disabled: true };
+  }
+  return { ...base, icon: 'translate', label: '翻译：中英段落对照', pressed: false };
+}
+
+function fetchButton(): BarButton {
+  if (detail.fetchStatus === 'fetching') return busy('fetch', '正在抓取全文…');
+  const loading = detail.rss === null;
+  return {
+    key: 'fetch',
+    icon: 'cloud',
+    label: loading ? '正文载入中' : '抓取全文',
+    disabled: loading,
+    onClick: detail.fetchFullText,
+  };
+}
+
+const buttons = computed<BarButton[]>(() => {
+  const out = [summaryButton()];
+  if (detail.translatable) out.push(translateButton());
+  out.push({
+    key: 'bionic',
+    icon: prefs.bionic ? 'bionic' : 'bionicOff',
+    label: prefs.bionic ? 'Bionic Reading 已开，点击关闭' : 'Bionic Reading：加粗英文词首',
+    active: prefs.bionic,
+    pressed: prefs.bionic,
+    onClick: prefs.toggleBionic,
+  });
+  if (detail.fetchStatus !== 'ok') out.push(fetchButton());
+  out.push({ key: 'ext', icon: 'ext', label: '在浏览器打开', onClick: openInBrowser });
+  const read = !!card.value?.read;
+  out.push({
+    key: 'read',
+    icon: read ? 'mailOpen' : 'mail',
+    label: read ? '已读，点击标为未读' : '未读，点击标为已读',
+    onClick: toggleRead,
+  });
+  return out;
+});
 
 watch(
   () => detail.id,
@@ -66,7 +163,14 @@ function toggleRead() {
           </div>
           <div v-if="detail.fetchStatus === 'fetching'" class="notice info">
             <Icon name="refresh" class="spin" />
-            <div class="grow">RSS 里的正文被截断，正在抓取全文…</div>
+            <div class="grow">正在抓取全文…</div>
+          </div>
+          <div v-else-if="detail.suggestFullText" class="notice info">
+            <Icon name="cloud" />
+            <div class="grow">RSS 只提供了很少的内容，可以先抓取全文再生成摘要。</div>
+            <button class="btn primary" @click="detail.fetchFullText">
+              <Icon name="cloud" />抓取全文
+            </button>
           </div>
           <div v-else-if="detail.fetchStatus === 'failed'" class="notice warn">
             <Icon name="warn" />
@@ -83,12 +187,16 @@ function toggleRead() {
             </button>
           </div>
 
+          <div v-if="detail.translateMessage" class="notice warn translate-failed">
+            <Icon name="warn" />
+            <div class="grow">{{ detail.translateMessage }}</div>
+          </div>
+
           <ArticleSummary
             v-if="showSummary"
             :html="detail.summaryHtml"
             :note="detail.summaryNote"
             :loading="detail.summaryLoading"
-            :waiting="detail.fetchStatus === 'fetching'"
             @link="detail.openLink"
           />
 
@@ -96,6 +204,8 @@ function toggleRead() {
           <ArticleBody
             v-else
             :html="detail.body"
+            :translation="detail.bilingual ? detail.translation : null"
+            :bionic="prefs.bionic"
             @image="(images, start) => (viewer = { images, start })"
             @link="detail.openLink"
           />
@@ -106,19 +216,20 @@ function toggleRead() {
       </div>
 
       <div class="float-bar">
-        <button
-          class="btn primary"
-          :disabled="!detail.canSummarize || detail.summaryLoading || !!detail.summaryHtml"
-          :title="detail.canSummarize ? undefined : '正文太短，无法摘要'"
-          @click="detail.summarize"
-        >
-          <Icon name="spark" />{{ summaryLabel }}
-        </button>
-        <button class="btn" @click="openInBrowser"><Icon name="ext" />在浏览器打开</button>
-        <span class="div"></span>
-        <button class="btn ghost" @click="toggleRead">
-          <Icon :name="card.read ? 'mail' : 'mailOpen'" />{{ card.read ? '标为未读' : '标为已读' }}
-        </button>
+        <template v-for="b in buttons" :key="b.key">
+          <span v-if="b.key === 'read'" class="div"></span>
+          <button
+            class="btn square"
+            :class="[b.key, { primary: b.primary, active: b.active, done: b.done }]"
+            :disabled="b.disabled"
+            :title="b.label"
+            :aria-label="b.label"
+            :aria-pressed="b.pressed"
+            @click="b.onClick"
+          >
+            <Icon :name="b.icon" :class="{ spin: b.spin }" />
+          </button>
+        </template>
       </div>
     </template>
     <div v-else class="placeholder">从列表选一篇文章</div>
@@ -253,15 +364,6 @@ hr {
   filter: brightness(1.06);
 }
 
-.btn.ghost {
-  border-color: transparent;
-  color: var(--text-2);
-}
-
-.btn.ghost:hover {
-  color: var(--text);
-}
-
 .btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
@@ -294,6 +396,31 @@ hr {
 
 .float-bar .btn.primary {
   border-color: var(--accent);
+}
+
+.float-bar .btn.square {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.float-bar .btn.read {
+  color: var(--text-2);
+}
+
+.float-bar .btn.read:hover {
+  color: var(--text);
+}
+
+.float-bar .btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.float-bar .btn.done[disabled] {
+  opacity: 1;
+  cursor: default;
+  color: var(--accent);
 }
 
 .float-bar .div {

@@ -83,6 +83,24 @@ func TestUpdateSettingsWritesTypedValues(t *testing.T) {
 	}
 }
 
+// The reader group (Bionic Reading, spec D22) is written by the article view,
+// not the panel, but goes through the same routes.
+func TestReaderSettingsReadAndWrite(t *testing.T) {
+	api := newTestAPI(t)
+	var got settings.View
+	api.getJSON(t, "/api/settings", &got)
+	if got.Settings["bionic_reading"] != false {
+		t.Fatalf("default bionic_reading = %v", got.Settings["bionic_reading"])
+	}
+	api.postJSON(t, "/api/settings/update", `{"bionic_reading": true}`, &got)
+	if api.stored(t)["bionic_reading"] != "true" || got.Settings["bionic_reading"] != true {
+		t.Fatalf("stored = %v, answer = %v", api.stored(t)["bionic_reading"], got.Settings["bionic_reading"])
+	}
+	if api.triggered != 0 {
+		t.Fatal("a reader setting started a sync")
+	}
+}
+
 // TestUpdateSettingsRejectsUnknownKeys refuses the whole write for a key
 // outside the panel's list, a value of the wrong type or an invalid proxy
 // (spec D10).
@@ -96,6 +114,7 @@ func TestUpdateSettingsRejectsUnknownKeys(t *testing.T) {
 		`{"llm_model": "m", "freshrss_auto_sync_interval": 0}`,
 		`{"llm_model": 3}`,
 		`{"llm_model": "m", "proxy_mode": "manual", "proxy_host": ""}`,
+		`{"llm_model": "m", "llm_api_key": ""}`,
 		`["llm_model"]`,
 	} {
 		if rec := api.send(t, http.MethodPost, "/api/settings/update", body); rec.Code != http.StatusBadRequest {
@@ -104,6 +123,63 @@ func TestUpdateSettingsRejectsUnknownKeys(t *testing.T) {
 	}
 	if v := api.stored(t); v["llm_model"] != "" || v["proxy_mode"] != "system" {
 		t.Fatalf("a refused write was stored: %v", v)
+	}
+}
+
+// TestUpdateSettingsRefusalOmitsTheProxyPassword: the 400 body is shown in
+// the panel, and the proxy address it was refused over carries the password.
+func TestUpdateSettingsRefusalOmitsTheProxyPassword(t *testing.T) {
+	api := newTestAPI(t)
+	rec := api.send(t, http.MethodPost, "/api/settings/update",
+		`{"proxy_mode": "manual", "proxy_host": "127.0.0.1", "proxy_port": "notaport",
+		  "proxy_username": "kelch", "proxy_password": "hunter2-secret"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "hunter2-secret") {
+		t.Fatalf("400 body carries the proxy password: %q", body)
+	}
+}
+
+// TestClearSecret deletes one stored credential: an empty string in an
+// update is refused, so keeping and clearing never look alike.
+func TestClearSecret(t *testing.T) {
+	api := newTestAPI(t)
+	if err := api.store.Update(context.Background(), map[string]string{
+		"llm_api_key": "k", "freshrss_api_password": "p", "llm_model": "m",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got settings.View
+	api.postJSON(t, "/api/settings/secrets/clear", `{"key": "llm_api_key"}`, &got)
+	if v := api.stored(t); v["llm_api_key"] != "" || v["freshrss_api_password"] != "p" || v["llm_model"] != "m" {
+		t.Fatalf("stored = %v", v)
+	}
+	if !slices.Equal(got.SavedSecrets, []string{"freshrss_api_password"}) || got.Settings["llm_api_key"] != "" {
+		t.Fatalf("answer = %+v", got)
+	}
+	if api.triggered != 0 {
+		t.Fatal("clearing the model key started a sync")
+	}
+	api.postJSON(t, "/api/settings/secrets/clear", `{"key": "freshrss_api_password"}`, &got)
+	if len(got.SavedSecrets) != 0 || api.triggered != 1 {
+		t.Fatalf("answer = %+v, %d syncs", got, api.triggered)
+	}
+
+	for _, body := range []string{
+		`{"key": "llm_model"}`,
+		`{"key": "ai_api_key"}`,
+		`{"key": "window_x"}`,
+		`{"key": "llm_api_key", "also": 1}`,
+		`{}`,
+	} {
+		if rec := api.send(t, http.MethodPost, "/api/settings/secrets/clear", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", body, rec.Code)
+		}
+	}
+	if v := api.stored(t); v["llm_model"] != "m" {
+		t.Fatalf("a refused clear changed %v", v)
 	}
 }
 

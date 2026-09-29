@@ -1,9 +1,7 @@
 // Package crypto encrypts the credentials kept in settings (spec D3).
 //
 // Encrypt and Decrypt use the platform scheme: DPAPI in the current user's
-// scope on Windows, the machine-key AES scheme inherited from MrRSS on macOS.
-// DecryptLegacy reads the old MrRSS format on every platform; only the legacy
-// importer calls it, then re-encrypts with Encrypt.
+// scope on Windows, the machine-key AES scheme on macOS.
 package crypto
 
 import (

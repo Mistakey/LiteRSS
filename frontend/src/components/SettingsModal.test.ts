@@ -30,24 +30,102 @@ async function mounted() {
   return wrapper;
 }
 
+function nav(w: Awaited<ReturnType<typeof mounted>>, id: string) {
+  return w.find(`[data-nav=${id}]`);
+}
+
+function visibleGroups(w: Awaited<ReturnType<typeof mounted>>) {
+  return w
+    .findAll('fieldset.group')
+    .filter((g) => g.isVisible())
+    .map((g) => g.attributes('data-group'));
+}
+
+function marked(w: Awaited<ReturnType<typeof mounted>>, kind: 'dirty' | 'invalid') {
+  return w
+    .findAll('.nav-item')
+    .filter((n) => n.find(`.mark.${kind}`).exists())
+    .map((n) => n.attributes('data-nav'));
+}
+
 function updates() {
   return be.callsTo('POST', '/api/settings/update').map((c) => c.body);
 }
 
 describe('设置面板', () => {
-  it('分组依次为 FreshRSS、摘要模型、标题翻译、网络代理、应用、关于', async () => {
+  it('左侧导航依次为 FreshRSS、大模型、标题翻译、网络代理、应用、关于，一次只显示一组', async () => {
     const w = await mounted();
-    expect(w.findAll('legend').map((l) => l.text())).toEqual([
+    expect(w.find('.side h2').text()).toBe('设置');
+    expect(w.findAll('.nav-item').map((n) => n.text())).toEqual([
       'FreshRSS',
-      '摘要模型',
+      '大模型',
       '标题翻译',
       '网络代理',
       '应用',
       '关于',
     ]);
+    expect(visibleGroups(w)).toEqual(['freshrss']);
+    expect(w.find('.head h3').text()).toBe('FreshRSS');
+    expect(nav(w, 'freshrss').attributes('aria-current')).toBe('true');
     expect((w.find('[name=freshrss_server_url]').element as HTMLInputElement).value).toBe(
       'http://nas:8080'
     );
+
+    await nav(w, 'proxy').trigger('click');
+    expect(visibleGroups(w)).toEqual(['proxy']);
+    expect(w.find('.head h3').text()).toBe('网络代理');
+    expect(nav(w, 'freshrss').attributes('aria-current')).toBeUndefined();
+    w.unmount();
+  });
+
+  it('切换分组不丢草稿、测试结果与检查更新的结果', async () => {
+    be.update = { ...be.update, latest_version: '0.2.0', update_available: true };
+    const w = await mounted();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await w.find('[data-group=freshrss] .test .btn').trigger('click');
+    await settle();
+    await nav(w, 'about').trigger('click');
+    await w.find('[data-group=about] .btn').trigger('click');
+    await settle();
+    await nav(w, 'app').trigger('click');
+    await nav(w, 'freshrss').trigger('click');
+    expect((w.find('[name=freshrss_username]').element as HTMLInputElement).value).toBe('you');
+    expect(w.find('[data-test=freshrss]').text()).toBe('连接成功。');
+    await nav(w, 'about').trigger('click');
+    expect(w.find('[data-test=update]').text()).toBe('有新版本 0.2.0。');
+    expect(be.callsTo('GET', '/api/update/check')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('保存一次提交所有分组的改动；有改动的分组在导航上标出', async () => {
+    const w = await mounted();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await nav(w, 'llm').trigger('click');
+    await w.find('[name=llm_model]').setValue('m2');
+    await nav(w, 'app').trigger('click');
+    await w.find('[name=startup_on_boot]').setValue(true);
+    expect(marked(w, 'dirty')).toEqual(['freshrss', 'llm', 'app']);
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([
+      { freshrss_username: 'you', llm_model: 'm2', startup_on_boot: true },
+    ]);
+    expect(w.emitted('close')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('同步间隔不合法时标出 FreshRSS 组，在别的组点保存会跳回并聚焦', async () => {
+    const w = await mounted();
+    await w.find('[name=freshrss_auto_sync_interval]').setValue('0');
+    expect(marked(w, 'invalid')).toEqual(['freshrss']);
+    await nav(w, 'app').trigger('click');
+    await w.find('[name=close_to_tray]').setValue(false);
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([]);
+    expect(visibleGroups(w)).toEqual(['freshrss']);
+    expect(document.activeElement?.getAttribute('name')).toBe('freshrss_auto_sync_interval');
+    expect(w.find('.save-error').text()).toContain('同步间隔');
     w.unmount();
   });
 
@@ -90,17 +168,90 @@ describe('设置面板', () => {
     w.unmount();
   });
 
-  it('已存凭据显示占位；填新值提交新值，点清除提交空串', async () => {
-    be.settings.baidu_secret_key = 'old-key';
+  function secret(w: Awaited<ReturnType<typeof mounted>>, key: string) {
+    return w.find(`[data-secret=${key}]`);
+  }
+  const buttons = (el: ReturnType<typeof secret>) => el.findAll('button').map((b) => b.text());
+  function clears() {
+    return be.callsTo('POST', '/api/settings/secrets/clear').map((c) => c.body);
+  }
+
+  it('已保存的密钥显示为不可编辑的掩码，带「修改」「清除」；未保存的是普通空输入框', async () => {
     const w = await mounted();
-    const pass = w.find('[name=freshrss_api_password]');
-    expect(pass.attributes('placeholder')).toBe('已保存，留空不改');
-    expect((pass.element as HTMLInputElement).value).toBe('');
-    await pass.setValue('new-pass');
-    await w.find('[data-group=translation] .link').trigger('click');
+    const pass = secret(w, 'freshrss_api_password');
+    const masked = pass.find('input').element as HTMLInputElement;
+    expect(masked.readOnly).toBe(true);
+    expect(masked.value).toBe('••••••••');
+    expect(buttons(pass)).toEqual(['修改', '清除']);
+
+    const key = secret(w, 'llm_api_key');
+    const input = key.find('input').element as HTMLInputElement;
+    expect(input.readOnly).toBe(false);
+    expect(input.value).toBe('');
+    expect(buttons(key)).toEqual([]);
+    w.unmount();
+  });
+
+  it('修改：变成空的输入框，保存时写入新值', async () => {
+    const w = await mounted();
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    const input = secret(w, 'freshrss_api_password').find('input');
+    expect((input.element as HTMLInputElement).readOnly).toBe(false);
+    expect((input.element as HTMLInputElement).value).toBe('');
+    expect(buttons(secret(w, 'freshrss_api_password'))).toEqual(['取消']);
+    await input.setValue('new-pass');
     await w.find('form').trigger('submit');
     await settle();
-    expect(updates()).toEqual([{ freshrss_api_password: 'new-pass', baidu_secret_key: '' }]);
+    expect(updates()).toEqual([{ freshrss_api_password: 'new-pass' }]);
+    expect(be.settings.freshrss_api_password).toBe('new-pass');
+    w.unmount();
+  });
+
+  it('修改后取消：恢复已保存的掩码，保存时不动原值', async () => {
+    const w = await mounted();
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    await secret(w, 'freshrss_api_password').find('input').setValue('typo');
+    await secret(w, 'freshrss_api_password').find('button').trigger('click');
+    expect(
+      (secret(w, 'freshrss_api_password').find('input').element as HTMLInputElement).value
+    ).toBe('••••••••');
+    expect(w.find('button[type=submit]').attributes('disabled')).toBeDefined();
+    await w.find('[name=freshrss_username]').setValue('you');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([{ freshrss_username: 'you' }]);
+    expect(be.settings.freshrss_api_password).toBe('stored-pass');
+    w.unmount();
+  });
+
+  it('清除：可以撤销，保存时显式清除，不靠空串', async () => {
+    be.settings.baidu_secret_key = 'old-key';
+    const w = await mounted();
+    const baidu = () => secret(w, 'baidu_secret_key');
+    await baidu().findAll('button')[1].trigger('click');
+    expect(baidu().text()).toContain('保存后清除');
+    expect(buttons(baidu())).toEqual(['撤销']);
+    await baidu().find('button').trigger('click');
+    expect(buttons(baidu())).toEqual(['修改', '清除']);
+    expect(w.find('button[type=submit]').attributes('disabled')).toBeDefined();
+
+    await baidu().findAll('button')[1].trigger('click');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([]);
+    expect(clears()).toEqual([{ key: 'baidu_secret_key' }]);
+    expect(be.settings.baidu_secret_key).toBe('');
+    expect(w.emitted('close')).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('未保存的密钥填了就提交', async () => {
+    const w = await mounted();
+    await secret(w, 'llm_api_key').find('input').setValue('sk-1');
+    await w.find('form').trigger('submit');
+    await settle();
+    expect(updates()).toEqual([{ llm_api_key: 'sk-1' }]);
+    expect(clears()).toEqual([]);
     w.unmount();
   });
 
@@ -114,15 +265,24 @@ describe('设置面板', () => {
     w.unmount();
   });
 
-  it('后端拒收时显示原因，面板不关', async () => {
+  it.each([
+    ['invalid settings: proxy mode "manual" needs a host and port', '设置没有保存：手动代理要填写地址和端口。'],
+    [
+      'invalid settings: invalid proxy URL: invalid port ":x" after host',
+      '设置没有保存：代理地址或端口无效，请检查后再保存。',
+    ],
+    [
+      'invalid settings: freshrss_auto_sync_interval must be at least 1',
+      '设置没有保存：同步间隔要是不小于 1 的整数分钟。',
+    ],
+    ['unknown setting keys: ai_model','设置没有保存：有设置值不被接受，请检查后再试。'],
+  ])('后端拒收时显示中文原因，面板不关：%s', async (body, shown) => {
     const w = await mounted();
     await w.find('[name=freshrss_username]').setValue('you');
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('invalid settings: proxy mode "manual" needs a host and port', { status: 400 })
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(body, { status: 400 }));
     await w.find('form').trigger('submit');
     await settle();
-    expect(w.find('.save-error').text()).toContain('设置没有保存');
+    expect(w.find('.save-error').text()).toBe(shown);
     expect(w.emitted('close')).toBeUndefined();
     w.unmount();
   });

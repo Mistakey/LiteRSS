@@ -110,7 +110,7 @@ func (s *Store) Update(ctx context.Context, values map[string]string) error {
 		return fmt.Errorf("update settings: %w", err)
 	}
 	defer tx.Rollback()
-	if err := s.UpdateTx(ctx, tx, values); err != nil {
+	if err := s.updateTx(ctx, tx, values); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -119,9 +119,8 @@ func (s *Store) Update(ctx context.Context, values map[string]string) error {
 	return nil
 }
 
-// UpdateTx is Update inside the caller's transaction, for a write that must
-// land together with other tables (the legacy import).
-func (s *Store) UpdateTx(ctx context.Context, tx *sql.Tx, values map[string]string) error {
+// updateTx is Update inside tx.
+func (s *Store) updateTx(ctx context.Context, tx *sql.Tx, values map[string]string) error {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)

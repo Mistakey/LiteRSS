@@ -264,6 +264,7 @@ func TestUnsubscribedFeedLosesArticlesAndLocalData(t *testing.T) {
 		e.exec(t, `INSERT INTO fulltext_cache (item_id, content, cached_at) VALUES (?, 'f', 1)`, id)
 		e.exec(t, `INSERT INTO title_translations (item_id, translated_title) VALUES (?, '译')`, id)
 		e.exec(t, `INSERT INTO summaries (item_id, summary, created_at) VALUES (?, 's', 1)`, id)
+		e.exec(t, `INSERT INTO article_translations (item_id, source_hash, blocks, created_at) VALUES (?, 'h', '["译"]', 1)`, id)
 		e.exec(t, `INSERT INTO pending_read (item_id, value, seq) VALUES (?, 1, 1)`, id)
 	}
 	e.exec(t, `INSERT INTO pending_mark_all (stream_id, ts, seq) VALUES ('feed/2', 1, 1), ('user/-/label/News', 1, 2), ('feed/1', 1, 3)`)
@@ -275,7 +276,7 @@ func TestUnsubscribedFeedLosesArticlesAndLocalData(t *testing.T) {
 	if e.serverRead(t, gone) != -1 {
 		t.Fatal("article of the unsubscribed feed should be deleted")
 	}
-	for _, table := range []string{"article_contents", "fulltext_cache", "title_translations", "summaries", "pending_read"} {
+	for _, table := range []string{"article_contents", "fulltext_cache", "title_translations", "summaries", "article_translations", "pending_read"} {
 		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE item_id = ?`, gone); n != 0 {
 			t.Fatalf("%s row survived the unsubscribe", table)
 		}
@@ -391,6 +392,7 @@ func TestCleanupDeletesOnlyOldReadArticlesWithoutIntent(t *testing.T) {
 		e.exec(t, `INSERT INTO articles (item_id, stream_id, published_at, server_read) VALUES (?, 'feed/1', 1, 0)`, id)
 		e.exec(t, `INSERT INTO article_contents (item_id, content) VALUES (?, 'body')`, id)
 		e.exec(t, `INSERT INTO summaries (item_id, summary, created_at) VALUES (?, 's', 1)`, id)
+		e.exec(t, `INSERT INTO article_translations (item_id, source_hash, blocks, created_at) VALUES (?, 'h', '["译"]', 1)`, id)
 	}
 	e.exec(t, `INSERT INTO pending_read (item_id, value, seq) VALUES (?, 0, 1), (?, 1, 2)`, oldReadIntentUnread, oldReadIntentRead)
 
@@ -400,8 +402,10 @@ func TestCleanupDeletesOnlyOldReadArticlesWithoutIntent(t *testing.T) {
 	if e.serverRead(t, oldRead) != -1 {
 		t.Fatal("old read article without intent should be cleaned")
 	}
-	if n := e.count(t, `SELECT COUNT(*) FROM summaries WHERE item_id = ?`, oldRead); n != 0 {
-		t.Fatal("summary of a cleaned article survived")
+	for _, table := range []string{"summaries", "article_translations"} {
+		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE item_id = ?`, oldRead); n != 0 {
+			t.Fatalf("%s row of a cleaned article survived", table)
+		}
 	}
 	for _, id := range []int64{oldUnread, oldReadIntentUnread, oldReadIntentRead, recentRead} {
 		if e.serverRead(t, id) == -1 {

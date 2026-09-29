@@ -1,23 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import { isLabel, READING_LIST } from '../api';
-import { useNow } from '../composables/useNow';
 import { useReader } from '../stores/reader';
-import { syncLabel, useSync } from '../stores/sync';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import FeedBadge from './FeedBadge.vue';
 import Icon from './Icon.vue';
 
-defineEmits<{ settings: [] }>();
-
 const reader = useReader();
-const sync = useSync();
-const now = useNow();
 
 const collapsed = reactive(new Set<string>());
 const menu = ref<{ x: number; y: number; stream: string } | null>(null);
-
-const syncText = computed(() => syncLabel(sync.state, now.value));
 
 function toggle(id: string) {
   if (collapsed.has(id)) collapsed.delete(id);
@@ -82,7 +74,7 @@ const menuCaption = computed(() => {
       </div>
       <div class="sb-sep"></div>
 
-      <template v-for="cat in reader.tree.categories" :key="cat.id">
+      <template v-for="cat in reader.sidebarTree.categories" :key="cat.id">
         <div
           class="node cat"
           :class="{ on: reader.stream === cat.id, dim: !reader.unreadIn(cat.id) }"
@@ -116,7 +108,7 @@ const menuCaption = computed(() => {
       </template>
 
       <div
-        v-for="f in reader.tree.feeds"
+        v-for="f in reader.sidebarTree.feeds"
         :key="f.id"
         class="node feed top"
         :class="{ on: reader.stream === f.id, dim: !reader.unreadIn(f.id) }"
@@ -127,24 +119,6 @@ const menuCaption = computed(() => {
         <span v-if="reader.unreadIn(f.id)" class="cnt">{{ reader.unreadIn(f.id) }}</span>
       </div>
     </nav>
-
-    <div v-if="sync.state?.legacy_running" class="legacy" role="alert">
-      <Icon name="warn" />旧版 MrRSS 正在运行，会把已读改回未读，请退出
-    </div>
-    <div class="sb-foot">
-      <button
-        class="sync-link"
-        title="立即同步"
-        :disabled="sync.state?.running"
-        @click="sync.runNow()"
-      >
-        <Icon name="refresh" :class="{ spin: sync.state?.running }" />{{ syncText }}
-      </button>
-      <span class="grow"></span>
-      <button class="icon-btn" title="设置" aria-label="设置" @click="$emit('settings')">
-        <Icon name="gear" />
-      </button>
-    </div>
 
     <ContextMenu
       v-if="menu"
@@ -279,59 +253,5 @@ const menuCaption = computed(() => {
   height: 1px;
   background: var(--border);
   margin: 6px 8px;
-}
-
-.legacy {
-  flex: none;
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin: 0 8px 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  color: var(--warn-text);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.sb-foot {
-  flex: none;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.sync-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  color: var(--text-2);
-}
-
-.sync-link:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.sync-link:disabled {
-  cursor: default;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 </style>

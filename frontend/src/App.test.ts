@@ -71,20 +71,13 @@ describe('侧栏', () => {
     w.unmount();
   });
 
-  it('旧版在运行时显示提示', async () => {
-    be.syncStates = [
-      {
-        rev: 1,
-        running: false,
-        new_items: 0,
-        pending: 0,
-        last_sync_at: 0,
-        error: '',
-        legacy_running: true,
-      },
-    ];
+  it('未读视图里没选中的源读到零未读后从侧栏消失', async () => {
     const w = await mounted();
-    expect(w.find('.legacy').text()).toBe('旧版 MrRSS 正在运行，会把已读改回未读，请退出');
+    await w.findAll('.tree .node')[3].trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await w.find('.ctx button').trigger('click');
+    await settle();
+    const names = w.findAll('.tree .node .name').map((n) => n.text());
+    expect(names).toEqual(['全部订阅', '科技', '少数派']);
     w.unmount();
   });
 });
@@ -157,10 +150,14 @@ describe('列表', () => {
 });
 
 describe('设置入口', () => {
-  it('侧栏齿轮打开设置面板，关闭后消失', async () => {
+  it('侧栏没有底栏；顶栏应用菜单「设置…」打开设置面板，关闭后消失', async () => {
     const w = await mounted();
+    expect(w.find('.sidebar .sb-foot').exists()).toBe(false);
+    expect(w.find('.sidebar').text()).not.toContain('同步');
     expect(w.find('[role=dialog]').exists()).toBe(false);
-    await w.find('.sb-foot .icon-btn').trigger('click');
+    await w.find('.titlebar .app-btn').trigger('click');
+    const item = w.findAll('.ctx [role=menuitem]').find((b) => b.text() === '设置…');
+    await item!.trigger('click');
     await settle();
     expect(w.find('[role=dialog] h2').text()).toBe('设置');
     await w.find('[role=dialog] .head .icon-btn').trigger('click');

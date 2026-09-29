@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"LiteRSS/internal/enrich"
+	"LiteRSS/internal/feedicon"
 	"LiteRSS/internal/library"
 	"LiteRSS/internal/version"
 )
@@ -35,6 +36,7 @@ type Deps struct {
 	Library *library.Library
 	Intents Intents
 	Enrich  *enrich.Service
+	Icons   *feedicon.Service
 
 	Settings SettingsPanel
 	Browser  Browser
@@ -57,6 +59,7 @@ func Table(d Deps) []Route {
 
 		{Method: http.MethodGet, Path: "/api/settings", Handler: GetSettings(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/update", Mutates: true, Handler: UpdateSettings(d.Settings)},
+		{Method: http.MethodPost, Path: "/api/settings/secrets/clear", Mutates: true, Handler: ClearSecret(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/freshrss/test", Mutates: true, Handler: TestFreshRSS(d.Settings)},
 		{Method: http.MethodPost, Path: "/api/settings/llm/test", Mutates: true, Handler: TestModel(d.Settings)},
 
@@ -68,6 +71,7 @@ func Table(d Deps) []Route {
 		{Method: http.MethodGet, Path: "/api/articles/{id}/content", Handler: ArticleContent(d.Library)},
 		{Method: http.MethodGet, Path: "/api/unread-counts", Handler: UnreadCounts(d.Library)},
 		{Method: http.MethodGet, Path: "/api/subscriptions", Handler: Subscriptions(d.Library)},
+		{Method: http.MethodGet, Path: "/api/feeds/icon", Handler: FeedIcon(d.Icons)},
 
 		{Method: http.MethodPost, Path: "/api/articles/{id}/read", Mutates: true, Handler: SetArticleRead(d.Intents)},
 		{Method: http.MethodPost, Path: "/api/articles/read", Mutates: true, Handler: MarkArticlesRead(d.Intents)},
@@ -77,6 +81,7 @@ func Table(d Deps) []Route {
 		{Method: http.MethodPost, Path: "/api/articles/{id}/fulltext", Mutates: true, Handler: FetchFullText(d.Enrich)},
 		{Method: http.MethodPost, Path: "/api/articles/translate-titles", Mutates: true, Handler: TranslateTitles(d.Enrich)},
 		{Method: http.MethodPost, Path: "/api/articles/{id}/summary", Mutates: true, Handler: Summarize(d.Enrich)},
+		{Method: http.MethodPost, Path: "/api/articles/{id}/translation", Mutates: true, Handler: TranslateArticle(d.Enrich)},
 	}
 }
 

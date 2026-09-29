@@ -21,7 +21,9 @@ import (
 
 // ErrInvalid marks a request the panel refuses: a key it does not edit, a
 // value of the wrong type or range, a proxy that cannot be installed.
-// *UnknownKeysError and *InvalidValueError match it too.
+// *UnknownKeysError and *InvalidValueError match it too. The panel shows the
+// refusals a user can cause in Chinese by matching their English text
+// (frontend stores/settings.ts); change one there too.
 var ErrInvalid = errors.New("invalid settings")
 
 // connectionTestTimeout bounds a connection test.
@@ -66,17 +68,21 @@ func (p *Panel) View(ctx context.Context) (View, error) {
 
 // Update writes the given keys, each a JSON string, boolean or integer as
 // its schema type says, and returns the settings as they then are. Anything
-// the panel may not write refuses the whole update with an ErrInvalid error.
-// A new proxy applies at once; a changed FreshRSS account or sync interval
-// starts a sync. startup_on_boot is put into effect before it is stored: a
-// system that refuses it leaves the setting unchanged, and a failed write
-// puts the system back.
+// the panel may not write refuses the whole update with an ErrInvalid error,
+// an empty credential too: ClearSecret deletes one, so an update never
+// clears a credential by accident. A new proxy applies at once; a changed
+// FreshRSS account or sync interval starts a sync. startup_on_boot is put
+// into effect before it is stored: a system that refuses it leaves the
+// setting unchanged, and a failed write puts the system back.
 func (p *Panel) Update(ctx context.Context, in map[string]json.RawMessage) (View, error) {
 	update := make(map[string]string, len(in))
 	for key, raw := range in {
 		v, err := fromJSON(key, raw)
 		if err != nil {
 			return View{}, err
+		}
+		if def, _ := config.Lookup(key); def.Encrypted && v == "" {
+			return View{}, fmt.Errorf("%w: %s is cleared with ClearSecret, not an empty value", ErrInvalid, key)
 		}
 		update[key] = v
 	}
@@ -85,7 +91,21 @@ func (p *Panel) Update(ctx context.Context, in map[string]json.RawMessage) (View
 			return View{}, fmt.Errorf("%w: freshrss_auto_sync_interval must be at least 1", ErrInvalid)
 		}
 	}
+	return p.apply(ctx, update)
+}
 
+// ClearSecret deletes the stored credential key and returns the settings as
+// they then are, with the same effects as an update of it. A key that is
+// not a credential the panel edits is ErrInvalid.
+func (p *Panel) ClearSecret(ctx context.Context, key string) (View, error) {
+	if def, ok := config.Lookup(key); !ok || def.Internal() || !def.Encrypted {
+		return View{}, fmt.Errorf("%w: %q is not a credential", ErrInvalid, key)
+	}
+	return p.apply(ctx, map[string]string{key: ""})
+}
+
+// apply writes a checked update and puts it into effect.
+func (p *Panel) apply(ctx context.Context, update map[string]string) (View, error) {
 	values, err := p.store.Load(ctx)
 	if err != nil {
 		return View{}, err

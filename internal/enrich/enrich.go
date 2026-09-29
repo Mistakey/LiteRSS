@@ -1,7 +1,8 @@
 // Package enrich holds the content actions on articles the reader opens:
-// fetching the full text, translating titles and summarizing (spec D11).
-// Their results live in the local tables fulltext_cache, title_translations
-// and summaries, which sync never writes.
+// fetching the full text, translating titles, summarizing (spec D11) and
+// translating the body (spec D21). Their results live in the local tables
+// fulltext_cache, title_translations, summaries and article_translations,
+// which sync never writes.
 package enrich
 
 import (
@@ -85,9 +86,10 @@ type fetch struct {
 }
 
 // FullText returns an article's full text: the cached one, else a fresh
-// fetch of its link. Only a success is cached (pitfall 21). Concurrent calls
-// for one article share a fetch, so opening an article and asking for its
-// summary fetch the page once.
+// fetch of its link, which only the reader's button asks for (spec D11).
+// Only a success is cached (pitfall 21), and it drops the article's summary
+// and translation, which were made from the RSS body. Concurrent calls for one article share a
+// fetch.
 func (s *Service) FullText(ctx context.Context, id int64) (FullText, error) {
 	var content string
 	err := s.db.QueryRowContext(ctx, `SELECT content FROM fulltext_cache WHERE item_id = ?`, id).Scan(&content)
@@ -147,17 +149,40 @@ func (s *Service) runFetch(id int64, link string, f *fetch) {
 		f.res = failed(r.Outcome)
 		return
 	}
-	// The article may be gone meanwhile (retention cleanup); then nothing is
-	// cached.
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO fulltext_cache (item_id, content, cached_at)
-		 SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM articles WHERE item_id = ?)
-		 ON CONFLICT (item_id) DO UPDATE SET content = excluded.content, cached_at = excluded.cached_at`,
-		id, r.Content, time.Now().Unix(), id); err != nil {
-		f.err = fmt.Errorf("cache full text: %w", err)
+	if err := s.cacheFullText(ctx, id, r.Content); err != nil {
+		f.err = err
 		return
 	}
 	f.res = FullText{Outcome: fulltext.OutcomeSuccess, Content: r.Content}
+}
+
+// cacheFullText stores a fetched full text and drops the summary and the
+// translation made before it, so the next ones are made from what the reader
+// now shows. The article may be gone meanwhile (retention cleanup); then
+// nothing is cached.
+func (s *Service) cacheFullText(ctx context.Context, id int64, content string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("cache full text: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO fulltext_cache (item_id, content, cached_at)
+		 SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM articles WHERE item_id = ?)
+		 ON CONFLICT (item_id) DO UPDATE SET content = excluded.content, cached_at = excluded.cached_at`,
+		id, content, time.Now().Unix(), id); err != nil {
+		return fmt.Errorf("cache full text: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries WHERE item_id = ?`, id); err != nil {
+		return fmt.Errorf("drop the RSS summary: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM article_translations WHERE item_id = ?`, id); err != nil {
+		return fmt.Errorf("drop the RSS translation: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("cache full text: %w", err)
+	}
+	return nil
 }
 
 func failed(o fulltext.Outcome) FullText {
@@ -389,8 +414,8 @@ type Summary struct {
 }
 
 // Summarize returns an article's summary: the stored one, else a new one
-// from the full text, or from the RSS body when the full text cannot be had
-// and the body is long enough (spec D11).
+// from what the reader shows, the cached full text or else the RSS body. It
+// never fetches the page itself (spec D11).
 func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 	var md, note string
 	err := s.db.QueryRowContext(ctx, `SELECT summary, note FROM summaries WHERE item_id = ?`, id).Scan(&md, &note)
@@ -401,9 +426,11 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 		return Summary{}, fmt.Errorf("read summary: %w", err)
 	}
 	var title, body string
+	var full sql.NullString
 	err = s.db.QueryRowContext(ctx,
-		`SELECT a.title, COALESCE(c.content, '') FROM articles a
-		 LEFT JOIN article_contents c ON c.item_id = a.item_id WHERE a.item_id = ?`, id).Scan(&title, &body)
+		`SELECT a.title, COALESCE(c.content, ''), f.content FROM articles a
+		 LEFT JOIN article_contents c ON c.item_id = a.item_id
+		 LEFT JOIN fulltext_cache f ON f.item_id = a.item_id WHERE a.item_id = ?`, id).Scan(&title, &body, &full)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Summary{}, fmt.Errorf("article %d: %w", id, library.ErrNotFound)
 	}
@@ -411,37 +438,26 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 		return Summary{}, fmt.Errorf("read article: %w", err)
 	}
 
-	values, err := s.settings.Load(ctx)
-	if err != nil {
-		return Summary{}, fmt.Errorf("read the model settings: %w", err)
-	}
-	model := summary.Model{Endpoint: values["llm_endpoint"], Name: values["llm_model"], APIKey: values["llm_api_key"], HTTP: s.api}
-	if model.Endpoint == "" || model.Name == "" {
-		return Summary{Note: "还没有配置摘要模型，请在设置里填写。"}, nil
-	}
-
-	ft, err := s.FullText(ctx, id)
+	model, ok, err := s.model(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	var text string
-	if ft.Outcome == fulltext.OutcomeSuccess {
-		text = htmltext.Text(ft.Content, maxSummaryRunes)
+	if !ok {
+		return Summary{Note: noModel}, nil
 	}
+
+	fromRSS := !full.Valid
+	source := full.String
+	if fromRSS {
+		source = body
+		note = "摘要基于 RSS 正文。"
+	}
+	text := htmltext.Text(source, maxSummaryRunes)
 	if htmltext.Visible(text) < minSummaryRunes {
-		rss := htmltext.Text(body, maxSummaryRunes)
-		if htmltext.Visible(rss) < minSummaryRunes {
-			if ft.Outcome == fulltext.OutcomeSuccess {
-				return Summary{Note: "正文太短，无法生成摘要。"}, nil
-			}
-			return Summary{Note: "未能获取全文：" + ft.Message + "RSS 正文太短，无法生成摘要。"}, nil
+		if fromRSS {
+			return Summary{Note: "RSS 正文太短，无法生成摘要，可以先抓取全文。"}, nil
 		}
-		text = rss
-		if ft.Outcome == fulltext.OutcomeSuccess {
-			note = "抓到的全文太短，摘要基于 RSS 正文。"
-		} else {
-			note = "未能获取全文：" + ft.Message + "摘要基于 RSS 正文。"
-		}
+		return Summary{Note: "正文太短，无法生成摘要。"}, nil
 	}
 
 	md, err = model.Summarize(ctx, title, text)
@@ -450,15 +466,31 @@ func (s *Service) Summarize(ctx context.Context, id int64) (Summary, error) {
 			return Summary{}, ctx.Err()
 		}
 		log.Printf("Summary for %d: %v", id, err)
-		return Summary{Note: "摘要生成失败，请检查设置里的摘要模型，或稍后再试。"}, nil
+		return Summary{Note: "摘要生成失败，请检查设置里的大模型，或稍后再试。"}, nil
 	}
-	// A made summary is kept even when the reader has left meanwhile.
+	// A made summary is kept even when the reader has left meanwhile, but one
+	// from the RSS body not once a full text has arrived: that one replaces it.
 	if _, err := s.db.ExecContext(context.WithoutCancel(ctx),
 		`INSERT INTO summaries (item_id, summary, note, created_at)
 		 SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM articles WHERE item_id = ?)
+		   AND NOT (? AND EXISTS (SELECT 1 FROM fulltext_cache WHERE item_id = ?))
 		 ON CONFLICT (item_id) DO UPDATE SET summary = excluded.summary, note = excluded.note, created_at = excluded.created_at`,
-		id, md, note, time.Now().Unix(), id); err != nil {
+		id, md, note, time.Now().Unix(), id, fromRSS, id); err != nil {
 		return Summary{}, fmt.Errorf("store summary: %w", err)
 	}
 	return Summary{HTML: summary.RenderHTML(md), Note: note}, nil
+}
+
+// noModel is the Chinese hint when the model is not configured.
+const noModel = "还没有配置大模型，请在设置里填写。"
+
+// model reads the one model configuration (spec D10); ok is false when it
+// is not configured, its endpoint or model name empty.
+func (s *Service) model(ctx context.Context) (m summary.Model, ok bool, err error) {
+	values, err := s.settings.Load(ctx)
+	if err != nil {
+		return summary.Model{}, false, fmt.Errorf("read the model settings: %w", err)
+	}
+	m = summary.Model{Endpoint: values["llm_endpoint"], Name: values["llm_model"], APIKey: values["llm_api_key"], HTTP: s.api}
+	return m, m.Endpoint != "" && m.Name != "", nil
 }

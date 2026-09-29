@@ -43,7 +43,7 @@ export const useSync = defineStore('sync', () => {
     controller = null;
   }
 
-  /** 点侧栏底部的同步状态：请后端立即跑一轮，进度由长轮询报告。 */
+  /** 顶栏应用菜单「立即同步」：请后端立即跑一轮，进度由长轮询报告。 */
   async function runNow() {
     try {
       await api.syncNow();
@@ -57,13 +57,13 @@ export const useSync = defineStore('sync', () => {
 
 const NOT_CONFIGURED = 'the FreshRSS account is not configured';
 
-/** 侧栏底部的同步状态文案；now 为 Unix 秒。 */
+/** 顶栏名称右边与应用菜单里的同步状态文案；now 为 Unix 秒。 */
 export function syncLabel(s: SyncState | null, now: number): string {
   if (!s) return '正在连接…';
   if (s.running) return '正在同步…';
   // 错误串带调用链前缀（如 "sync: …"），按结尾判断。
   if (s.error.endsWith(NOT_CONFIGURED)) return '未配置 FreshRSS 账号';
-  if (s.error) return '同步失败，点击重试';
+  if (s.error) return '同步失败';
   if (!s.last_sync_at) return '尚未同步';
   const min = Math.floor((now - s.last_sync_at) / 60);
   if (min < 1) return '刚刚已同步';

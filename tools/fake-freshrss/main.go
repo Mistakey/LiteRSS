@@ -36,6 +36,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle(freshrsstest.APIPrefix+"/", fake)
+	mux.Handle(freshrsstest.FaviconPath, fake)
+	mux.Handle(freshrsstest.PlaceholderPath, fake)
 	control(mux, fake)
 
 	log.Printf("fake FreshRSS on http://%s (API %s), user %q, %d feeds, %d items",
