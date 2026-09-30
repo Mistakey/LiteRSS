@@ -86,7 +86,7 @@ curl --noproxy "*" -X POST "http://127.0.0.1:1241/_fake/release?corrupt=1&rate=0
   词长查表（与 text-vide fixation 1 档一致）、词的切分与跳过的元素在 `utils/bionic.test.ts`，读写开关与保存失败在 `stores/prefs.test.ts`。
 - `FakeBackend` 的 `settings` 是已存设置（凭据按明文放，GET 时回空串并列进 `saved_secrets`，清单外的键与空串凭据写入回 400，清除走 `secrets/clear`），`tests` 排好两个测试连接的回应（缺省成功），`update` 是检查更新的回应，`updateSteps` 排好应用内更新依次报告的进度（`start` 回第一项，之后每次 `status` 前进一项并停在最后一项）。
   `SettingsModal.test.ts` 守住导航顺序与一次只显示一组、切换分组不丢草稿 / 测试结果 / 检查更新结果、保存一次提交所有分组的改动并在导航上标出改过与不合法的分组（同步间隔不合法时跳回 FreshRSS 组）、保存只提交清单内改过的键（已存凭据不回写）、密钥的掩码 / 修改 / 取消 / 清除与撤销 / 未保存各状态、测试连接的传参与成功 / 失败显示、拒收时不关闭，以及「更新到 X」只点一次、进度轮询、失败原因与发布页、打开时显示已有的更新进度。
-- 清洗器载荷矩阵在 `utils/sanitize.test.ts`：html-sanitize.md 第 1–4 节的载荷都不能留下事件属性、脚本类 URL 或嵌入元素，指向自身源与回环的地址被删，
+- 清洗器载荷矩阵在 `utils/sanitize.test.ts`：规划文档 html-sanitize.md 第 1–4 节的载荷（`git show 4056ac16:docs/specs/literss-rb0/html-sanitize.md`）都不能留下事件属性、脚本类 URL 或嵌入元素，指向自身源与回环的地址被删，
   `mailto:`、`data-sanitized-class`、外部图片与 MathML 保留。改清洗规则时先加载荷，再确认去掉对应规则时测试会失败。
 
 ## Verification by task

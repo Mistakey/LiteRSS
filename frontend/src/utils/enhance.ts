@@ -1,6 +1,6 @@
 /**
  * 清洗之后对正文做的增强：公式（KaTeX）与代码高亮（highlight.js）。它们生成的标记可信，所以放在清洗之后，
- * 样式经 CSSOM 写入，不受 CSP `style-src 'self'` 限制（html-sanitize.md 第 5 节）。
+ * 样式经 CSSOM 写入，不受 CSP `style-src 'self'` 限制（Epic literss-rb0 规划文档 html-sanitize.md 第 5 节）。
  *
  * 这个模块连同 KaTeX、highlight.js 按需载入（ArticleBody 动态 import），不进首屏包。
  *
