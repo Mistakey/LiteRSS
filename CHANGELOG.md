@@ -4,6 +4,10 @@ LiteRSS 的版本变化记录在这里。格式参照 [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+### 安全
+
+- 升级 gomarkdown：修复渲染 AI 摘要时 Smartypants 的越界读取（GitHub Dependabot 高危警报）。
+
 ## [0.1.1] - 2026-09-29
 
 ### 新增

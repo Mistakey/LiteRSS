@@ -5,7 +5,7 @@ go 1.27
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.2
 	github.com/abadojack/whatlanggo v1.0.1
-	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
+	github.com/gomarkdown/markdown v0.0.0-20260411013819-759bbc3e3207
 	github.com/longbridgeapp/opencc v0.3.13
 	github.com/mattn/go-ieproxy v0.0.12
 	github.com/wailsapp/wails/v3 v3.0.0-beta.26
