@@ -11,16 +11,9 @@
 - 不再跟随上游；需要某个上游修复时手工移植，不合并（ADR 0017）。
 - 依赖与可执行命令以 `go.mod`、`frontend/package.json`、lockfile 与 Taskfile 为准，工具链细节以它们为准。
 
-## 重做进行中
-
-- Epic `literss-rb0`；目标形态以 [spec](docs/specs/literss-rb0/spec.md) 为准，同目录是各规划节点的一手依据。本仓库其余文档只描述已经落地的代码。
-- 旧实现只通过标签 `legacy-final` 对照：`git show legacy-final:<路径>`，或 `git worktree add <仓库旁目录> legacy-final` 检出只读副本。
-  主干不留旧代码目录；旧版已知 bug 与安全漏洞不热修。
-- forge:finish 删除 spec 时一并删除本节。
-
 ## 开发实例与取证
 
-- 已安装版本的单实例 ID（旧版 `com.mrrss.app`、新版 `io.github.mistakey.literss`）在 agent 会话里一律不得用于启动：用户实例在运行时，
+- 已安装版本的单实例 ID（`io.github.mistakey.literss`）在 agent 会话里一律不得用于启动：用户实例在运行时，
   新进程只会通知它然后在 `Starting Wails v3...` 后退出；没在运行时，它会打开用户的真实数据。带 `-tags production` 的构建就是这种构建。
 - agent 只启动开发构建：不带 `production` 标签的 `go build -o <scratch 目录>\LiteRSS.exe .`。它自带独立 UniqueID、exe 旁的 `data\`
   （数据、日志与 WebView2 用户数据）和 1235 端口（`internal/identity`），能在用户实例运行时正常启动；二进制放在 scratch 目录，不放进仓库。
@@ -36,7 +29,8 @@
 
 | 任务 | 参考 |
 | --- | --- |
-| 模块边界或跨模块行为 | [Architecture](docs/ARCHITECTURE.md)；相关 [ADR](docs/adr/)；未落地部分看 spec |
+| 模块边界或跨模块行为 | [Architecture](docs/ARCHITECTURE.md)；相关 [ADR](docs/adr/) |
+| 代码或文档引用的 `spec D<n>` 与规划文档 | Epic `literss-rb0` 收尾时已删除，原文 `git show 4056ac16:docs/specs/literss-rb0/<文件>` |
 | Go / Vue 实现 | [Code Patterns](docs/CODE_PATTERNS.md) |
 | 选择或运行检查 | [Testing](docs/TESTING.md#verification-by-task) |
 | 工具链、构建或打包失败 | [Build Requirements](docs/BUILD_REQUIREMENTS.md) |

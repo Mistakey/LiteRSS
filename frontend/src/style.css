@@ -1,5 +1,5 @@
 /*
- * 全局变量与基础样式，取自布局原型变体 B（docs/specs/literss-rb0/layout-prototype/style.css）。
+ * 全局变量与基础样式，取自 Epic literss-rb0 布局原型变体 B（git show 4056ac16:docs/specs/literss-rb0/layout-prototype/style.css）。
  * 主题只跟随系统；组件样式写在各自的 scoped CSS 里。
  */
 :root {

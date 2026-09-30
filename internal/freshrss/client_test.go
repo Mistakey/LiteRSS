@@ -74,7 +74,8 @@ func TestContinuationIsInclusiveAndDropsFirst(t *testing.T) {
 	}
 
 	// The boundary entry is read elsewhere between pages: the server still drops
-	// the first result, so an unread entry is skipped (read-retention.md, 新发现 1).
+	// the first result, so an unread entry is skipped (Epic literss-rb0 read-retention.md,
+	// 新发现 1: git show 4056ac16:docs/specs/literss-rb0/read-retention.md).
 	unread := ItemIDQuery{Stream: StreamReadingList, Exclude: StreamRead, Count: 2}
 	first := ids(t, c, unread)
 	if !slices.Equal(first.IDs, []int64{5000, 4000}) || first.Continuation != "4000" {

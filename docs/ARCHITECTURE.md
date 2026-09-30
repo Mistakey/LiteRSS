@@ -1,12 +1,12 @@
 # 架构
 
-> 重做进行中：本文只描述已经落地的代码。目标形态以 [spec](specs/literss-rb0/spec.md) 为准；
-> 旧实现用 `legacy-final` 标签对照（见 AGENTS.md「重做进行中」）。
+> 本文与代码注释里的 `spec D<n>` 指 Epic `literss-rb0` 的设计决定。spec 与同目录的规划文档已在收尾时删除，
+> 原文用 `git show 4056ac16:docs/specs/literss-rb0/spec.md`（或同目录的其他文件）读。
 
 ## 现状
 
-旧的同步、数据库访问、HTTP handler 与路由、AI profile、AI 翻译、内容缓存和整个前端已经删除。
-主干此时是一个能编译的壳加一组留用模块，界面有侧栏、列表、详情与设置面板；业务 API 目前有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树、源图标）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要）与杂项（设置读写、测试连接、在浏览器打开、检查更新与应用内更新），新模块按 spec D1 的顺序逐块长回来。
+LiteRSS 由 MrRSS 重做而来（Epic `literss-rb0`，ADR 0017）：同步、本地库、HTTP 路由、前端与桌面壳是新写的，少数模块沿用自 MrRSS（见下「沿用模块」）。
+界面有侧栏、列表、详情与设置面板；业务 API 有同步状态、立即同步、列表读路径（快照、卡片、正文、未读计数、订阅树、源图标）、已读动作（单篇、批量、全部已读、撤销）、内容动作（抓全文、标题翻译、摘要、全文翻译）与杂项（设置读写、测试连接、在浏览器打开、窗口按钮、检查更新与应用内更新）。
 
 - 后端：Go + Wails v3，`main.go` 开一个窗口、单实例、托管 `frontend/dist`，打开本地库、启动同步调度，并在回环地址上启动 desktopapi。
 - 前端：Vue 3 + TypeScript + Vite + Vitest + Pinia，三栏与设置面板都已接上 API（见下「前端」）。
@@ -261,9 +261,9 @@
 - 图标：`src/components/Icon.vue` 渲染 `icons.ts` 里的内联 SVG 形状，不引图标库、不经 `v-html`。
 - `npm run dev` 的 Vite 服务器只监听 `127.0.0.1:5173`，把 `/api` 代理到开发实例 1235，并只改写 5173 的 `Origin`（`devProxy.js`，pitfall 24）。
 
-## 留用模块
+## 沿用模块
 
-这些模块保持原位，到用它的步骤再裁剪（spec D1）。
+这些模块沿用自 MrRSS，按新代码的需要裁剪过。
 
 | 包 | 作用 |
 | --- | --- |
@@ -276,7 +276,7 @@
 | `internal/utils/httputil` | 出站 HTTP 客户端与三态代理（ADR 0004，pitfall 8、10） |
 | `internal/update` | 检查更新与应用内更新：GitHub 最新正式发布与当前版本比较；`Updater` 下载、校验并按 `Locate` / `PlanInstall` 安装（spec D20）；`Watch` 是壳的定时自动检查；`updatetest` 是假发布服务 |
 | `internal/utils/fileutil` | 按当前身份解析数据目录与日志路径，日志轮转 |
-| `internal/utils/urlutil` | URL 规范化与比较 |
+| `internal/utils/urlutil` | URL 规范化与比较（目前无调用方） |
 | `internal/errors` | 带错误码的应用错误类型（目前无调用方） |
 | `internal/middleware` | HTTP 中间件（panic 转 500） |
 | `internal/version` | 版本号 |

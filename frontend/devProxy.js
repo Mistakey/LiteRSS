@@ -1,4 +1,4 @@
-// Vite 开发服务器把 /api 代理到开发实例（docs/specs/literss-rb0/spec.md D5）。
+// Vite 开发服务器把 /api 代理到开发实例（spec D5，见 docs/ARCHITECTURE.md 开头）。
 // 开发实例只放行与自身源严格相等的 Origin，所以只把 Vite 页面自己的源改写为目标源；
 // 其他 Origin 原样转发，照旧被拒绝。
 export const DEV_SERVER_ORIGIN = 'http://127.0.0.1:5173';

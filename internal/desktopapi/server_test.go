@@ -40,7 +40,8 @@ func TestProtectLocalAPI(t *testing.T) {
 
 	// Chrome sends Origin on same-origin POST and on same-origin GETs in CORS
 	// mode (<script type="module" crossorigin>, <link crossorigin>), but not on
-	// a plain same-origin fetch GET (docs/specs/literss-rb0/dev-isolation.md).
+	// a plain same-origin fetch GET (Epic literss-rb0 dev-isolation.md:
+	// git show 4056ac16:docs/specs/literss-rb0/dev-isolation.md).
 	tests := []struct {
 		name           string
 		method         string

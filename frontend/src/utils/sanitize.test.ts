@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { safeImageUrl, sanitizeArticleHtml } from './sanitize';
 
-// 载荷矩阵：docs/specs/literss-rb0/html-sanitize.md 第 1、2、3、4 节。
+// 载荷矩阵：Epic literss-rb0 规划文档 html-sanitize.md 第 1、2、3、4 节（git show 4056ac16:docs/specs/literss-rb0/html-sanitize.md）。
 function dom(html: string) {
   const div = document.createElement('div');
   div.innerHTML = sanitizeArticleHtml(html);

@@ -4,7 +4,7 @@
  *
  * 顺序：先在惰性文档里把嵌入内容换成外链、把懒加载图片的真实地址换进 src，
  * 再交给 DOMPurify 按白名单清洗；URL 规则在属性钩子里补上 DOMPurify 默认不管的两条：
- * 只收绝对地址，删掉指向应用自身源与回环主机的地址（CSP 挡不住这类 GET，html-sanitize.md 第 4 节）。
+ * 只收绝对地址，删掉指向应用自身源与回环主机的地址（CSP 挡不住这类 GET，Epic literss-rb0 规划文档 html-sanitize.md 第 4 节）。
  */
 import DOMPurify from 'dompurify';
 
