@@ -74,9 +74,11 @@ func TestWaitStateReturnsOnChange(t *testing.T) {
 func TestWaitStateTimesOutWithTheSameStatus(t *testing.T) {
 	e := newEnv(t, nil)
 	st := e.svc.State()
+	// Read the clock before the deadline is set: taken after, it runs short of
+	// the timeout by the gap, which the coarse Windows clock can round below it.
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	start := time.Now()
 	got := e.svc.WaitState(ctx, st.Rev)
 	if time.Since(start) < 100*time.Millisecond {
 		t.Fatal("returned before its context ended")
