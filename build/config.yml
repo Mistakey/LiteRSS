@@ -11,7 +11,7 @@ info:
   description: "A desktop FreshRSS reader for unread articles" # The application description
   copyright: "Copyright © 2026" # Copyright text
   comments: "Built with Wails" # Comments
-  version: "0.1.1" # The application version
+  version: "0.1.2" # The application version
 
 # Dev mode configuration
 dev_mode:

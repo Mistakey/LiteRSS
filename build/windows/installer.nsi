@@ -9,8 +9,8 @@
 ; All paths in this script are relative to the script directory.
 
 !define APP_NAME "LiteRSS"
-!define APP_VERSION "0.1.1"
-!define APP_VERSION_NUMERIC "0.1.1.0"  ; NSIS requires X.X.X.X format
+!define APP_VERSION "0.1.2"
+!define APP_VERSION_NUMERIC "0.1.2.0"  ; NSIS requires X.X.X.X format
 !define APP_PUBLISHER "kelch"
 !define APP_URL "https://github.com/Mistakey/LiteRSS"
 !define APP_DESCRIPTION "A desktop FreshRSS reader for unread articles"

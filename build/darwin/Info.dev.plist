@@ -10,11 +10,11 @@
         <key>CFBundleIdentifier</key>
             <string>io.github.mistakey.literss.dev</string>
         <key>CFBundleVersion</key>
-            <string>0.1.1</string>
+            <string>0.1.2</string>
         <key>CFBundleGetInfoString</key>
             <string>Built with Wails</string>
         <key>CFBundleShortVersionString</key>
-            <string>0.1.1</string>
+            <string>0.1.2</string>
         <key>CFBundleIconFile</key>
             <string>icons</string>
         <key>LSMinimumSystemVersion</key>
